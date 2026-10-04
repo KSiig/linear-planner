@@ -1,3 +1,5 @@
+import { sha256Any } from "./lib/sha256";
+
 const LINEAR_AUTH_URL = "https://linear.app/oauth/authorize";
 const LINEAR_TOKEN_URL = "https://api.linear.app/oauth/token";
 const LINEAR_REVOKE_URL = "https://api.linear.app/oauth/revoke";
@@ -49,7 +51,10 @@ function generateRandomString(length: number): string {
 
 async function sha256(plain: string): Promise<Uint8Array> {
   const data = new TextEncoder().encode(plain);
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+  // `sha256Any` falls back to a pure-JS implementation when the page is
+  // served from a non-secure context (e.g. http://wb:<port>), where
+  // `crypto.subtle` is undefined.
+  return sha256Any(data);
 }
 
 function getClientId(): string {
