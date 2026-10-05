@@ -38,6 +38,18 @@ jobs:
         env:
           VITE_LINEAR_CLIENT_ID: ${{ vars.VITE_LINEAR_CLIENT_ID }}
         run: npm run build
+      - name: Ensure Pages project exists
+        env:
+          CLOUDFLARE_ACCOUNT_ID: "5b3269050c8afff008527d038d4f2538"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -e
+          if npx wrangler@4 pages project get linear-planner >/dev/null 2>&1; then
+            echo "Pages project linear-planner already exists"
+          else
+            echo "Creating Pages project linear-planner (production branch: main)"
+            npx wrangler@4 pages project create linear-planner --production-branch=main
+          fi
       - name: Deploy
         env:
           CLOUDFLARE_ACCOUNT_ID: "5b3269050c8afff008527d038d4f2538"
