@@ -123,6 +123,65 @@ matches GitHub-hosted Chrome.
   The route handler passes the data through verbatim, so any field the
   app's GraphQL query selects must exist in the response.
 
+## CI — `visual` job (SII-127)
+
+The `visual` job runs beside `test` (no `needs:`). It runs on every pull
+request and on every push to `main`. The job uses the existing workflow
+permissions (`contents: read`) and Node 22.
+
+It does not gate the `deploy` job — `deploy` still `needs: test` only.
+
+### Steps
+
+1. `actions/checkout@v4`
+2. `actions/setup-node@v4` with `node-version: "22"` and `cache: npm`
+3. `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci` — Playwright must not
+   download a browser; the runner ships Google Chrome
+4. Locate Google Chrome and export it as `VISUAL_CHROME_PATH`. If
+   `/usr/bin/google-chrome` exists, that path wins. Otherwise the
+   `google-chrome` binary on `PATH` is used. The path is set via the
+   `find-chrome` step output, not pinned to a version.
+5. `npm run visual:diff` — this command builds the app, runs the
+   capture, compares against the committed `screenshots/visual/baseline/`
+   tree, prints one markdown table row per screenshot, and exits
+   non-zero when any row fails the pixel gate.
+6. Append the per-screenshot table to `$GITHUB_STEP_SUMMARY`.
+7. Upload the `visual-screenshots` artifact
+   (`screenshots/visual/current/` and `screenshots/visual/diff/`) with
+   `actions/upload-artifact@v4`, retention 14 days, `if: always()`.
+
+The PNGs themselves are not embedded in the summary — only the table is.
+The PNGs live in the artifact.
+
+### Mismatch policy
+
+A pixel mismatch against the baseline is **not** a build failure. The
+job stays green. The fail row appears in the step summary table and in
+the `visual-screenshots` artifact, and a developer reads the diff to
+decide whether to update the baseline or fix the regression.
+
+A harness error is a build failure. Harness errors are:
+
+- The app build fails (TypeScript, Vite).
+- `vite preview` does not start.
+- Chrome fails to launch or crashes.
+- A page error, a console error, or an uncaught script error.
+- An unexpected request to `https://api.linear.app/graphql`.
+- `npm run visual:diff` does not print the per-screenshot table at all.
+
+The job detects the last case by grepping the command output for a
+line that contains the four column names `view`, `viewport`, `state`,
+and `pass`. If that line is missing, the job fails with a clear
+harness-error annotation. If it is present — even when individual rows
+are `fail` — the job exits 0 and the table goes into the step summary.
+
+### Baseline updates
+
+`npm run visual:update-baseline` (owned by SII-126) overwrites
+`screenshots/visual/baseline/`. A person reviews the diff in the
+`visual-screenshots` artifact before committing the new baseline. The
+`visual` job never updates the baseline.
+
 ## Out of scope
 
 - Real Linear data. The harness is mock-only.
