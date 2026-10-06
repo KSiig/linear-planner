@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Visual harness — local screenshot output (baseline is tracked, current/diff are not)
+screenshots/visual/current/
+screenshots/visual/diff/
