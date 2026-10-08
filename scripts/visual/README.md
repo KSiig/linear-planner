@@ -67,13 +67,20 @@ page script runs:
 localStorage.setItem('linear-planner-auth', JSON.stringify({
   accessToken: 'mock',
   refreshToken: 'mock',
-  expiresAt: 1790000000000,
+  expiresAt: 1893456000000, // 2030-01-01T00:00:00.000Z
 }));
 ```
 
-`expiresAt` is far enough in the future that `getAccessToken()` never
-triggers a refresh. If the OAuth refresh URL is ever called, the harness
-fails the run (it does not pre-empt the request — it detects and fails).
+`getAccessToken()` refreshes when `expiresAt` is less than five minutes
+ahead of `Date.now()`. The harness clock is `2026-10-05T07:00:00.000Z`,
+so `1893456000000` stays outside that window. `1790000000000` is
+`2026-09-21T14:13:20.000Z`. At the harness clock that token is already
+expired. The refresh reads `VITE_LINEAR_CLIENT_ID` before it sends a
+request. The visual build does not set that variable, the read throws,
+and the app clears `linear-planner-auth`. The page then shows
+"Connect to Linear" and never calls GraphQL. If the OAuth refresh URL
+is called, the harness fails the run (it does not pre-empt the request —
+it detects and fails).
 
 ## Adding a viewport, view, or fixture field
 

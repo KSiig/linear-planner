@@ -38,6 +38,14 @@ process.chdir(ROOT);
 const CAPTURE_ROOT = `${ROOT}/screenshots/visual/current`;
 const DEFAULT_CHROME_PATH = '/usr/bin/google-chrome';
 const CLOCK_INSTANT = '2026-10-05T07:00:00.000Z';
+// 2030-01-01T00:00:00.000Z. getAccessToken() refreshes when expiresAt is
+// under five minutes ahead of Date.now(). The frozen clock is
+// 2026-10-05T07:00:00.000Z (1791183600000). 1790000000000 is
+// 2026-09-21T14:13:20.000Z, so it is already expired: refreshTokens() calls
+// getClientId() before any network I/O, the visual build has no
+// VITE_LINEAR_CLIENT_ID, the throw is caught in App, and clearTokens()
+// drops the session. This value stays outside the refresh window.
+const AUTH_EXPIRES_AT = 1893456000000;
 const PREVIEW_BOOT_TIMEOUT_MS = 30_000;
 const OAUTH_REFRESH_URL = 'https://api.linear.app/oauth/token';
 const DATA_VIEW_PATH = '/proj-acme/';
@@ -91,7 +99,7 @@ function startPreview(port) {
     const preview = spawn(
       'npm',
       ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
     );
 
     let combined = '';
@@ -238,11 +246,11 @@ function historyPage(variables) {
 }
 
 async function registerGraphQLMock(context) {
-  // Track OAuth refresh URL hits so we can fail the run if the spec's
-  // "expiresAt blocks the refresh" guarantee is broken. We do NOT register
-  // a route for the OAuth URL — the spec wants the harness to *detect* an
-  // oauth hit and fail, not pre-empt it. With expiresAt 1790000000000 and
-  // the clock frozen at 2026-10-05, the refresh path is never taken.
+  // Track OAuth refresh URL hits so we can fail the run if the token is
+  // inside the five-minute refresh window. We do NOT register a route for
+  // the OAuth URL — the spec wants the harness to *detect* an oauth hit
+  // and fail, not pre-empt it. AUTH_EXPIRES_AT is 2030-01-01, past
+  // CLOCK_INSTANT, so the refresh path is never taken.
   context._oauthHit = false;
   context.on('request', (req) => {
     if (req.url().startsWith(OAUTH_REFRESH_URL)) {
@@ -349,14 +357,19 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
 // Auth bootstrap: install the mock auth token via addInitScript so it
 // lands before any page script reads it. No Storage.prototype wrappers —
 // those interfered with the source code's access to localStorage.
-function makeAuthInitScript() {
-  return () => {
+function installMockAuth(expiresAt) {
+  try {
     localStorage.setItem('linear-planner-auth', JSON.stringify({
       accessToken: 'mock',
       refreshToken: 'mock',
-      expiresAt: 1790000000000,
+      expiresAt,
     }));
-  };
+  } catch (err) {
+    // newPage() runs init scripts on about:blank. Chrome denies localStorage
+    // there, and that SecurityError would fail the run. The next navigation
+    // is the app document, and that one still receives the token.
+    if (!err || err.name !== 'SecurityError') throw err;
+  }
 }
 
 async function captureAll(browser, port) {
@@ -401,7 +414,7 @@ async function captureAll(browser, port) {
         colorScheme: theme,
         userAgent: viewport.userAgent ?? undefined,
       });
-      await dataContext.addInitScript(makeAuthInitScript());
+      await dataContext.addInitScript(installMockAuth, AUTH_EXPIRES_AT);
 
       const dataErrors = [];
       dataContext.on('page', (page) => {
@@ -469,10 +482,16 @@ async function main() {
     exitCode = 1;
   } finally {
     await browser.close().catch(() => undefined);
-    proc.kill('SIGTERM');
+    // npm does not forward SIGTERM to vite, and a live preview pipe keeps
+    // this process from exiting after a successful capture.
+    try {
+      process.kill(-proc.pid, 'SIGTERM');
+    } catch {
+      proc.kill('SIGTERM');
+    }
   }
 
-  if (exitCode !== 0) process.exit(exitCode);
+  process.exit(exitCode);
 }
 
 main().catch((err) => {
