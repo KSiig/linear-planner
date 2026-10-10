@@ -19,6 +19,55 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+  visual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies (no Playwright browser download)
+        run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
+      - name: Locate Google Chrome
+        id: find-chrome
+        run: |
+          if [ -x /usr/bin/google-chrome ]; then
+            echo "path=/usr/bin/google-chrome" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=$(which google-chrome)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run visual diff and collect the per-screenshot table
+        env:
+          VISUAL_CHROME_PATH: ${{ steps.find-chrome.outputs.path }}
+        run: |
+          set +e
+          npm run visual:diff | tee /tmp/visual-diff.txt
+          echo
+          # The diff command prints a markdown table with one row per screenshot.
+          # A row contains at least the columns: view, viewport, state, pass.
+          # The header line therefore has all four tokens on a single line.
+          if grep -qiE 'view.*viewport.*state.*pass' /tmp/visual-diff.txt; then
+            {
+              echo "## Visual diff"
+              echo
+              cat /tmp/visual-diff.txt
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Diff table produced. Job stays green regardless of pass/fail rows."
+            exit 0
+          else
+            echo "::error::npm run visual:diff did not print the per-screenshot table. Treating as a harness error (build, preview, Chrome, page error, or uncaught script error)."
+            exit 1
+          fi
+      - name: Upload visual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-screenshots
+          path: |
+            screenshots/visual/current/
+            screenshots/visual/diff/
+          retention-days: 14
   deploy:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: test
