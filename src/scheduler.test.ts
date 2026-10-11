@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { scheduleIssues } from "./scheduler";
 import type { LinearIssue, LinearMilestone, LinearWorkflowState, StateTransition, AssignedInterval, NoCountRange } from "./linear";
+import { isNonWorkingDay } from "./workingDays";
 
 // --- Helpers ---
 
@@ -27,6 +28,7 @@ function makeIssue(overrides: Partial<LinearIssue> & { id: string; identifier: s
     sortOrder: 0,
     startedAt: null,
     completedAt: null,
+    dueDate: null,
     state: { name: "To do", type: "unstarted", color: "#ccc", position: 1 },
     assignee: { id: "u1", name: "Worker One", avatarUrl: null },
     projectMilestone: null,
@@ -1531,6 +1533,213 @@ describe("scheduleIssues", () => {
       expect(x.endDay).toBe(4.5);
       // Days spent stays counted on schedulable days only: Apr 7 AM → Apr 10 PM = 4 days.
       expect(x.daysSpent).toBe(4);
+    });
+  });
+
+  describe("due dates", () => {
+    function atMidnight(date: Date): Date {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+
+    function ymd(date: Date): string {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    }
+
+    function calendarOffset(start: Date, day: Date): number {
+      const a = atMidnight(start).getTime();
+      const b = atMidnight(day).getTime();
+      return Math.round((b - a) / (1000 * 60 * 60 * 24));
+    }
+
+    /** Walk back `count` working days, not counting `day` itself. */
+    function workingDaysBefore(day: Date, count: number): Date {
+      let d = atMidnight(day);
+      let left = count;
+      while (left > 0) {
+        d = addDays(d, -1);
+        if (!isNonWorkingDay(d)) left--;
+      }
+      return d;
+    }
+
+    const today = atMidnight(new Date());
+    let chartStart = addDays(today, -21);
+    while (chartStart.getDay() !== 1 || isNonWorkingDay(chartStart)) chartStart = addDays(chartStart, -1);
+
+    let dueFriday = addDays(today, 40);
+    while (dueFriday.getDay() !== 5 || isNonWorkingDay(dueFriday)) dueFriday = addDays(dueFriday, 1);
+    const due = ymd(dueFriday);
+    const dueOffset = calendarOffset(chartStart, dueFriday);
+
+    function overlaps(a: { startDay: number; endDay: number }, b: { startDay: number; endDay: number }): boolean {
+      return a.startDay < b.endDay && a.endDay > b.startDay;
+    }
+
+    it("ends an unstarted issue on its due date, estimate days long", () => {
+      const issues = [makeIssue({ id: "a", identifier: "A-1", estimate: 5, dueDate: due })];
+      const a = findIssue(scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(a.endDay).toBe(dueOffset + 1);
+      expect(a.startDay).toBe(calendarOffset(chartStart, workingDaysBefore(dueFriday, 4)));
+      expect(a.dueDate).toBe(due);
+      expect(a.isLate).toBe(false);
+    });
+
+    it("uses 3 working days when the issue has no estimate", () => {
+      const issues = [makeIssue({ id: "a", identifier: "A-1", dueDate: due })];
+      const a = findIssue(scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(a.endDay).toBe(dueOffset + 1);
+      expect(a.startDay).toBe(calendarOffset(chartStart, workingDaysBefore(dueFriday, 2)));
+      expect(a.duration).toBe(3);
+      expect(a.hasEstimate).toBe(false);
+    });
+
+    it("places a half-day estimate on the afternoon of the due date", () => {
+      const issues = [makeIssue({ id: "a", identifier: "A-1", estimate: 0.5, dueDate: due })];
+      const a = findIssue(scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(a.startDay).toBe(dueOffset + 0.5);
+      expect(a.endDay).toBe(dueOffset + 1);
+    });
+
+    it("snaps a weekend due date back onto the previous working day", () => {
+      const saturday = addDays(dueFriday, 1);
+      const dated = makeIssue({ id: "a", identifier: "A-1", estimate: 1, dueDate: ymd(saturday) });
+      const a = findIssue(scheduleIssues([dated], 1, chartStart, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(a.endDay).toBe(dueOffset + 1);
+      expect(a.startDay).toBe(dueOffset);
+    });
+
+    it("keeps an undated issue on the capacity plan from today", () => {
+      const issues = [
+        makeIssue({ id: "dated", identifier: "A-1", dueDate: due }),
+        makeIssue({ id: "open", identifier: "A-2", estimate: 2 }),
+      ];
+      const result = scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES);
+      const dated = findIssue(result, "A-1")!;
+      const open = findIssue(result, "A-2")!;
+      const todayOffset = calendarOffset(chartStart, today);
+      expect(dated.endDay).toBe(dueOffset + 1);
+      expect(open.startDay).toBeGreaterThanOrEqual(todayOffset - 2);
+      expect(open.startDay).toBeLessThan(dated.startDay);
+    });
+
+    it("extends an overdue open issue through today and marks it late", () => {
+      let pastDue = addDays(today, -10);
+      while (isNonWorkingDay(pastDue)) pastDue = addDays(pastDue, -1);
+      const issues = [makeIssue({ id: "a", identifier: "A-1", dueDate: ymd(pastDue) })];
+      const a = findIssue(scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(a.isLate).toBe(true);
+      expect(a.endDay).toBe(calendarOffset(chartStart, today) + 1);
+      expect(a.startDay).toBeLessThan(calendarOffset(chartStart, pastDue));
+    });
+
+    it("does not let a blocker push a due-dated issue past its due date", () => {
+      const issues = [
+        makeIssue({
+          id: "blocker", identifier: "A-1", estimate: 40,
+          relations: { nodes: [{ id: "r1", type: "blocks", relatedIssue: { id: "dated", identifier: "A-2" } }] },
+        }),
+        makeIssue({ id: "dated", identifier: "A-2", estimate: 1, dueDate: due }),
+      ];
+      const dated = findIssue(scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES), "A-2")!;
+      expect(dated.startDay).toBe(dueOffset);
+      expect(dated.endDay).toBe(dueOffset + 1);
+    });
+
+    it("holds an undated dependent until the due-dated blocker ends", () => {
+      const issues = [
+        makeIssue({
+          id: "blocker", identifier: "A-1", estimate: 1, dueDate: due,
+          relations: { nodes: [{ id: "r1", type: "blocks", relatedIssue: { id: "next", identifier: "A-2" } }] },
+        }),
+        makeIssue({ id: "next", identifier: "A-2", estimate: 1 }),
+      ];
+      const result = scheduleIssues(issues, 2, chartStart, [], [], WORKFLOW_STATES);
+      const blocker = findIssue(result, "A-1")!;
+      const next = findIssue(result, "A-2")!;
+      expect(blocker.endDay).toBe(dueOffset + 1);
+      expect(next.startDay).toBeGreaterThanOrEqual(blocker.endDay);
+    });
+
+    it("does not hold a later milestone's undated work for a far due date", () => {
+      let far = addDays(today, 200);
+      while (isNonWorkingDay(far)) far = addDays(far, 1);
+      const ms1: LinearMilestone = { id: "ms1", name: "Phase 1", sortOrder: 1 };
+      const ms2: LinearMilestone = { id: "ms2", name: "Phase 2", sortOrder: 2 };
+      const issues = [
+        makeIssue({
+          id: "far", identifier: "A-1", dueDate: ymd(far),
+          projectMilestone: { id: "ms1", name: "Phase 1", sortOrder: 1 },
+        }),
+        makeIssue({
+          id: "soon", identifier: "A-2", estimate: 1,
+          projectMilestone: { id: "ms2", name: "Phase 2", sortOrder: 2 },
+        }),
+      ];
+      const result = scheduleIssues(issues, 1, chartStart, [], [ms1, ms2], WORKFLOW_STATES);
+      const farIssue = findIssue(result, "A-1")!;
+      const soon = findIssue(result, "A-2")!;
+      expect(farIssue.endDay).toBe(calendarOffset(chartStart, far) + 1);
+      expect(soon.startDay).toBeLessThan(farIssue.startDay);
+    });
+
+    it("keeps a done issue on its real dates", () => {
+      const issues = [
+        makeIssue({
+          id: "a", identifier: "A-1", estimate: 3, dueDate: due,
+          startedAt: isoDate(MONDAY),
+          completedAt: isoDate(addDays(MONDAY, 2)),
+          state: { name: "Done", type: "completed", color: "#0f0", position: 6 },
+        }),
+      ];
+      const a = findIssue(scheduleIssues(issues, 1, MONDAY, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(a.done).toBe(true);
+      expect(a.endDay).toBeLessThan(10);
+      expect(a.dueDate).toBe(due);
+    });
+
+    it("stretches an in-progress issue from its real start through the due date", () => {
+      const issues = [
+        makeIssue({
+          id: "a", identifier: "A-1", estimate: 1, dueDate: due,
+          startedAt: isoDate(chartStart),
+          state: { name: "In Progress", type: "started", color: "#36f", position: 2 },
+        }),
+      ];
+      const result = scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES);
+      const rows = result.issues.filter((i) => i.identifier === "A-1");
+      expect(rows).toHaveLength(1);
+      expect(rows[0].startDay).toBe(0);
+      expect(rows[0].endDay).toBe(dueOffset + 1);
+    });
+
+    it("gives overlapping due-dated bars their own rows, separate from undated work", () => {
+      const issues = [
+        makeIssue({ id: "d1", identifier: "A-1", dueDate: due }),
+        makeIssue({ id: "d2", identifier: "A-2", dueDate: due }),
+        makeIssue({ id: "open", identifier: "A-3", estimate: 30 }),
+      ];
+      const result = scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES);
+      const d1 = findIssue(result, "A-1")!;
+      const d2 = findIssue(result, "A-2")!;
+      const open = findIssue(result, "A-3")!;
+      expect(overlaps(d1, d2)).toBe(true);
+      expect(d1.worker).not.toBe(d2.worker);
+      expect(overlaps(d1, open)).toBe(true);
+      expect(open.worker).not.toBe(d1.worker);
+      expect(open.worker).not.toBe(d2.worker);
+    });
+
+    it("still draws a due date past the default calendar horizon", () => {
+      let far = addDays(chartStart, 800);
+      while (isNonWorkingDay(far)) far = addDays(far, 1);
+      const a = findIssue(
+        scheduleIssues([makeIssue({ id: "a", identifier: "A-1", estimate: 1, dueDate: ymd(far) })], 1, chartStart, [], [], WORKFLOW_STATES),
+        "A-1",
+      )!;
+      expect(a.endDay).toBe(calendarOffset(chartStart, far) + 1);
+      expect(a.endDay).toBeGreaterThan(730);
     });
   });
 

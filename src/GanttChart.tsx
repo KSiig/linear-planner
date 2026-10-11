@@ -13,6 +13,12 @@ import {
   type DayInfo, isOutsideCycles, crossedNonWorkingRuns,
 } from "./ganttLayout";
 
+function formatDueDate(dateStr: string): string {
+  const [y, m, d] = dateStr.slice(0, 10).split("-").map(Number);
+  const date = new Date(y, (m ?? 1) - 1, d ?? 1);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 /** Merge overlapping/touching overlay rects, so an on-hold stretch is painted once. */
 function mergeBars(bars: Array<{ left: number; width: number }>): Array<{ left: number; width: number }> {
   const merged: Array<{ left: number; width: number }> = [];
@@ -648,6 +654,11 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown 
             {tooltipInfo.issue.noCountDays > 0 && (
               <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
                 Excluded: {tooltipInfo.issue.noCountDays % 1 === 0 ? tooltipInfo.issue.noCountDays : tooltipInfo.issue.noCountDays.toFixed(1)} working day{tooltipInfo.issue.noCountDays === 1 ? "" : "s"}
+              </div>
+            )}
+            {tooltipInfo.issue.dueDate && (
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                Due {formatDueDate(tooltipInfo.issue.dueDate)}
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)", whiteSpace: "nowrap" }}>

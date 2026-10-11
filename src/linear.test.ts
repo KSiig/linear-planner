@@ -83,6 +83,7 @@ function makeIssue(overrides: Partial<LinearIssue> & { id: string; identifier: s
     priorityLabel: "No priority",
     startedAt: null,
     completedAt: null,
+    dueDate: null,
     state: { name: "To do", type: "unstarted", color: "#ccc", position: 1 },
     assignee: null,
     projectMilestone: null,

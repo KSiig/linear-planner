@@ -31,7 +31,9 @@ export interface ScheduledIssue {
   daysSpent: number | null; // working days from startedAt to today (started/done), null if not started
   hasEstimate: boolean;
   done: boolean;
-  isLate: boolean; // in-progress and has taken more working days than estimated
+  isLate: boolean; // open past its estimate, or an open issue whose due date has passed
+  /** Linear due date (`YYYY-MM-DD`) when the issue has one. */
+  dueDate: string | null;
   blockedBy: Array<{ id: string; identifier: string; title: string; done: boolean; relationId: string }>;
   startedAtRaw: string | null;
   endedAtRaw: string | null;
@@ -322,7 +324,19 @@ export function scheduleIssues(
   noCountByIssue: Map<string, NoCountRange[]> = new Map(),
 ): ScheduleResult {
   const { cycles: linearCycles, realIds: realCycleIds } = extendCyclesWithVirtual(linearCyclesInput);
-  const cal = buildWorkingDayCalendar(startDate, 730);
+  // A due date past the default two-year window still has to land on a real column.
+  let horizonDays = 730;
+  for (const issue of issues) {
+    const due = issue.dueDate?.slice(0, 10);
+    if (!due) continue;
+    const [y, m, d] = due.split("-").map(Number);
+    if (!y || !m || !d) continue;
+    const date = new Date(y, m - 1, d);
+    date.setHours(0, 0, 0, 0);
+    const off = dateToCalendarOffset(date, startDate);
+    if (off + 14 > horizonDays) horizonDays = off + 14;
+  }
+  const cal = buildWorkingDayCalendar(startDate, horizonDays);
   const sched = buildSchedulableDays(cal, linearCycles, startDate);
   const issueMap = new Map(issues.map((i) => [i.id, i]));
 
@@ -396,6 +410,34 @@ export function scheduleIssues(
   function siHalfForDateHalf(dateStr: string, pm: boolean): number {
     const wd = cal.toWorkingDay(calendarOffsetForDate(dateStr));
     return sched.toSchedulable(wd) * HALF_PER_DAY + (pm ? 1 : 0);
+  }
+
+  /** Fractional start of a bar that covers `halves` working half-days and finishes at the
+   *  close of `dueCal` (a working-day offset). .0 = AM, .5 = PM. Walks back over weekends
+   *  and holidays, and stops at the chart start when the window does not fit. */
+  function startDayCovering(dueCal: number, halves: number): number {
+    let remaining = halves;
+    let day = dueCal;
+    while (day >= 0) {
+      const working = day < cal.calendarToWd.length && cal.calendarToWd[day] >= 0;
+      if (!working) { day--; continue; }
+      if (remaining <= 1) return day + (remaining === 1 ? 0.5 : 0);
+      remaining -= 2;
+      if (remaining === 0) return day;
+      day--;
+    }
+    return 0;
+  }
+
+  /** Schedulable half where a fractional calendar offset begins. Non-working days snap
+   *  forward, matching the packer's "next slot" rule. */
+  function siAtCalendarHalf(day: number): number {
+    const whole = Math.floor(Math.max(0, day));
+    const pm = day - whole >= 0.5;
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + whole);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    return siHalfForDateHalf(key, pm);
   }
 
   /** Exclusive si bound just past the last half a no-count range covers. A non-working end
@@ -522,6 +564,7 @@ export function scheduleIssues(
   for (const issue of issues) countDownstream(issue.id, new Set());
 
   const scheduled: ScheduledIssue[] = [];
+  const duePlaced: ScheduledIssue[] = [];
   const endSiMap = new Map<string, number>();
   const doneEndDateStr = new Map<string, string | null>();
   const scheduledIds = new Set<string>();
@@ -735,6 +778,7 @@ export function scheduleIssues(
       priority: issue.priority, priorityLabel: issue.priorityLabel,
       assigneeAvatarUrl: issue.assignee?.avatarUrl ?? null, assigneeName: issue.assignee?.name ?? null,
       daysSpent, hasEstimate, done: isDone(issue), isLate,
+      dueDate: issue.dueDate ? issue.dueDate.slice(0, 10) : null,
       startedAtRaw: effectiveStartedAtRaw,
       endedAtRaw: isDone(issue) ? (doneEndDateStr.get(issue.id) ?? null) : null,
       labels: issue.labels.nodes,
@@ -782,6 +826,53 @@ export function scheduleIssues(
     endSiMap.set(issue.id, endSi);
   }
 
+  // Open issues with a due date are pinned so the bar ends on that date (estimate, or 3
+  // working days, counted back from it). The packer must not slide them to make room, and
+  // they take their own lanes so they do not paint over undated work. An undated issue
+  // still waits until a due-dated blocker ends. A passed due date stays on the chart
+  // through today. Done issues keep their real start and completion dates.
+  for (const issue of issues) {
+    const due = issue.dueDate?.slice(0, 10);
+    if (!due || !/^\d{4}-\d{2}-\d{2}$/.test(due) || isDone(issue)) continue;
+
+    const hasEstimate = issue.estimate != null && issue.estimate > 0;
+    const est = hasEstimate ? issue.estimate! : DEFAULT_ESTIMATE;
+    const halves = estimateToHalves(est);
+
+    let dueCal = calendarOffsetForDate(due);
+    if (dueCal >= cal.calendarToWd.length) dueCal = cal.calendarToWd.length - 1;
+    if (dueCal >= 0) {
+      while (dueCal > 0 && cal.calendarToWd[dueCal] < 0) dueCal--;
+    }
+
+    const todayCal = dateToCalendarOffset(today, startDate);
+    const nowFrac = todayCal + (isAfterThreshold(new Date().toISOString()) ? 0.5 : 0);
+    const dueExclusive = dueCal < 0 ? 0 : dueCal + 1;
+    const overdue = dueExclusive <= nowFrac;
+
+    let startDay = dueCal < 0 ? 0 : startDayCovering(dueCal, halves);
+    if (isActivelyInProgress(issue)) {
+      startDay = Math.min(startDay, Math.max(0, calendarHalfForIso(effectiveStartedAtFor(issue))));
+    }
+    if (startDay < 0) startDay = 0;
+
+    let endDay = overdue ? Math.max(dueExclusive, todayCal + 1) : dueExclusive;
+    if (endDay < startDay + 0.5) endDay = startDay + 0.5;
+
+    const endSi = Math.max(1, siAtCalendarHalf(endDay));
+    endSiMap.set(issue.id, endSi);
+    scheduledIds.add(issue.id);
+
+    const built = buildScheduledIssue(issue, est, est, 0, endSi, -1);
+    built.startDay = startDay;
+    built.endDay = endDay;
+    built.ignoredRanges = built.ignoredRanges
+      .map((r) => ({ startDay: Math.max(startDay, r.startDay), endDay: Math.min(endDay, r.endDay) }))
+      .filter((r) => r.endDay > r.startDay);
+    if (overdue) built.isLate = true;
+    duePlaced.push(built);
+  }
+
   // --- Phase 1: pin non-done started issues to their startedAt ---
   // The user configures W workers, but reality sometimes has more issues started in
   // parallel than W. To honor each issue's real start date, we may grow workerFreeAtSi
@@ -793,7 +884,7 @@ export function scheduleIssues(
   // unfinished blocker never pushes it later (a QA ticket started while its dev ticket was
   // still open belongs on the day it started). Blockers only gate unstarted work, in phase 2.
   for (const issue of issues) {
-    if (!isActivelyInProgress(issue) || isDone(issue)) continue;
+    if (!isActivelyInProgress(issue) || isDone(issue) || scheduledIds.has(issue.id)) continue;
 
     // Use the effective started timestamp (first entry into an active state) when state
     // history is available, so the gantt bar starts where the work actually started — not
@@ -1031,7 +1122,19 @@ export function scheduleIssues(
   }
   const numDoneLanes = doneLaneIntervals.length;
 
-  for (const s of scheduled) s.worker += numDoneLanes;
+  // Due-dated bars share rows only when they do not overlap, and never with a capacity lane.
+  duePlaced.sort((a, b) => a.startDay - b.startDay || a.endDay - b.endDay);
+  const dueLaneIntervals: Array<Array<[number, number]>> = [];
+  for (const di of duePlaced) {
+    let lane = dueLaneIntervals.findIndex((intervals) => !intervals.some(([s, e]) => di.startDay < e && di.endDay > s));
+    if (lane < 0) { lane = dueLaneIntervals.length; dueLaneIntervals.push([]); }
+    dueLaneIntervals[lane].push([di.startDay, di.endDay]);
+    di.worker = numDoneLanes + lane;
+  }
+  const numDueLanes = dueLaneIntervals.length;
+  const laneBase = numDoneLanes + numDueLanes;
+
+  for (const s of scheduled) s.worker += laneBase;
 
   function sortRowsByEarliestStart(items: ScheduledIssue[], offset: number) {
     const earliest = new Map<number, number>();
@@ -1045,22 +1148,23 @@ export function scheduleIssues(
   }
 
   sortRowsByEarliestStart(doneItems, 0);
+  sortRowsByEarliestStart(duePlaced, numDoneLanes);
   // Sort configured-W lanes first (earliest start at top), then overflow lanes underneath.
   // This keeps the visual contract: lanes 0..(configuredWorkers-1) are the user's planned
   // capacity; anything below is the result of Phase 1 spilling over because more issues
-  // were started in parallel than configured.
-  const overflowLaneCutoff = numDoneLanes + configuredNumWorkers;
+  // were started in parallel than configured. Done lanes and due-date lanes sit above them.
+  const overflowLaneCutoff = laneBase + configuredNumWorkers;
   const configuredScheduled = scheduled.filter((s) => s.worker < overflowLaneCutoff);
   const overflowScheduled = scheduled.filter((s) => s.worker >= overflowLaneCutoff);
-  sortRowsByEarliestStart(configuredScheduled, numDoneLanes);
+  sortRowsByEarliestStart(configuredScheduled, laneBase);
   const configuredLanesUsed = configuredScheduled.length > 0
-    ? Math.max(...configuredScheduled.map((s) => s.worker)) - numDoneLanes + 1
+    ? Math.max(...configuredScheduled.map((s) => s.worker)) - laneBase + 1
     : 0;
-  sortRowsByEarliestStart(overflowScheduled, numDoneLanes + configuredLanesUsed);
+  sortRowsByEarliestStart(overflowScheduled, laneBase + configuredLanesUsed);
 
-  const allIssues = [...doneItems, ...scheduled];
+  const allIssues = [...doneItems, ...duePlaced, ...scheduled];
 
-  const usedWorkers = scheduled.length > 0 ? Math.max(...scheduled.map((s) => s.worker)) - numDoneLanes + 1 : 1;
+  const usedWorkers = scheduled.length > 0 ? Math.max(...scheduled.map((s) => s.worker)) - laneBase + 1 : 1;
   let totalDays = Math.max(...allIssues.map((s) => s.endDay), 0);
   const todayOffset = dateToCalendarOffset(today, startDate);
 
