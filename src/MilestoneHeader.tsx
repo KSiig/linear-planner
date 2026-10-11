@@ -200,6 +200,18 @@ const boldLineStyle: CSSProperties = { ...lineStyle, fontWeight: 600 };
 const indentLineStyle: CSSProperties = { ...lineStyle, paddingLeft: 8 };
 const spacerStyle: CSSProperties = { height: 3 };
 
+/** One line for a phone milestone band: name, count, and the end date. */
+export function MilestoneBandLabel({ name, summary }: { name: string; summary: MilestoneSummaryData }) {
+  const end = summary.targetEnd.replace(/^End:\s*/, "ends ");
+  return (
+    <>
+      <span style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>{name}</span>
+      <span style={{ color: "var(--text)", fontWeight: 600, letterSpacing: 0 }}> · {summary.issueCount}</span>
+      {end && <span style={{ color: "var(--text-muted)", fontWeight: 500, letterSpacing: 0 }}> · {end}</span>}
+    </>
+  );
+}
+
 export function MilestoneHeader({ name, summary }: { name: string; summary: MilestoneSummaryData }) {
   return (
     <>

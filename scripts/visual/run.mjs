@@ -48,7 +48,7 @@ const CLOCK_INSTANT = '2026-10-05T07:00:00.000Z';
 const AUTH_EXPIRES_AT = 1893456000000;
 const PREVIEW_BOOT_TIMEOUT_MS = 30_000;
 const OAUTH_REFRESH_URL = 'https://api.linear.app/oauth/token';
-const DATA_VIEW_PATH = '/proj-acme/';
+const DATA_VIEW_PATH = '/proj-priskurven/';
 
 const SURFACES = Object.freeze([
   Object.freeze({ view: 'landing',     state: 'sign-in',   needsAuth: false }),
@@ -326,24 +326,24 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
   } else if (surface.view === 'timeline') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Timeline' }).waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'tree') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Tree (per milestone)' }).click();
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'tree-global') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Tree (global)' }).click();
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'settings') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel('Settings').click();
     await page.getByText('People in parallel').waitFor({ state: 'visible', timeout: 15_000 });
   }

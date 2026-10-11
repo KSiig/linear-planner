@@ -5,25 +5,28 @@
 // ...) and the GraphQL client expects a matching number of result keys
 // (i0, i1, ...).
 //
-// Domain is the Acme Launch example project: 12 issues, 2 milestones, 4
-// workflow states, 2 assignees, 3 blocks relations. The history covers
-// a real Todo -> In Progress -> Done path so the scheduler exercises both
-// code paths (state-only and state+assignee changes).
+// Domain is priskurven milestone "M1 — Shelf collector" (Linear milestone
+// 357094eb-a836-4978-946d-eadd97339f14): 16 issues, one assignee.
+// blocks lists are the intra-milestone edges only. Targets on M1.1
+// (SII-100, SII-102) are omitted, and relatedTo is not a blocks edge.
+// History is empty: the scheduler falls back to startedAt / completedAt.
+// Linear has every M1 issue Done. States below are a stand-in: the
+// foundation stays Done, and the source interface, history query, and
+// placeholder-zip fix stay open so the tree shows work in progress.
 
 export const TEAM = Object.freeze({
-  id: 'team-acme',
-  name: 'Acme',
-  key: 'ACME',
+  id: 'team-siig',
+  name: 'Siig',
+  key: 'SII',
 });
 
 export const PROJECT = Object.freeze({
-  id: 'proj-acme',
-  name: 'Acme Launch',
+  id: 'proj-priskurven',
+  name: 'priskurven',
 });
 
 export const MILESTONES = Object.freeze([
-  Object.freeze({ id: 'ms-foundation', name: 'Foundation', sortOrder: 0 }),
-  Object.freeze({ id: 'ms-launch', name: 'Launch', sortOrder: 1 }),
+  Object.freeze({ id: 'ms-m1', name: 'M1 — Shelf collector', sortOrder: 1042 }),
 ]);
 
 export const STATES = Object.freeze([
@@ -34,8 +37,7 @@ export const STATES = Object.freeze([
 ]);
 
 export const USERS = Object.freeze([
-  Object.freeze({ id: 'user-ada',   name: 'Ada Lovelace', avatarUrl: null }),
-  Object.freeze({ id: 'user-grace', name: 'Grace Hopper', avatarUrl: null }),
+  Object.freeze({ id: 'user-kasper', name: 'Kasper Siig', avatarUrl: null }),
 ]);
 
 function stateByName(name) {
@@ -58,33 +60,48 @@ function milestoneByName(name) {
   return { id: m.id, name: m.name, sortOrder: m.sortOrder };
 }
 
+const M1 = 'M1 — Shelf collector';
+
 const ISSUE_TABLE = [
-  { id: 'iss-1',  identifier: 'ACME-1',  title: 'Setup repo',       state: 'Done',        milestone: 'Foundation', estimate: 2, priority: 2, assignee: 'user-ada',   startedAt: '2026-09-01T08:00:00.000Z', completedAt: '2026-09-03T16:00:00.000Z', blocks: [] },
-  { id: 'iss-2',  identifier: 'ACME-2',  title: 'Auth',             state: 'Done',        milestone: 'Foundation', estimate: 3, priority: 2, assignee: 'user-grace', startedAt: '2026-09-02T08:00:00.000Z', completedAt: '2026-09-05T16:00:00.000Z', blocks: [{ blocked: 'ACME-4', rel: 'rel-2-4' }] },
-  { id: 'iss-3',  identifier: 'ACME-3',  title: 'Schema',           state: 'In Progress', milestone: 'Foundation', estimate: 2, priority: 3, assignee: 'user-ada',   startedAt: '2026-09-20T08:00:00.000Z', completedAt: null,                    blocks: [{ blocked: 'ACME-7', rel: 'rel-3-7' }] },
-  { id: 'iss-4',  identifier: 'ACME-4',  title: 'API',              state: 'Todo',        milestone: 'Foundation', estimate: 5, priority: 2, assignee: null,         startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-5',  identifier: 'ACME-5',  title: 'Empty states',     state: 'Backlog',     milestone: 'Foundation', estimate: 1, priority: 4, assignee: null,         startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-6',  identifier: 'ACME-6',  title: 'Docs',             state: 'Todo',        milestone: 'Foundation', estimate: 1, priority: 3, assignee: 'user-grace', startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-7',  identifier: 'ACME-7',  title: 'Beta flag',        state: 'In Progress', milestone: 'Launch',     estimate: 2, priority: 1, assignee: 'user-grace', startedAt: '2026-09-28T08:00:00.000Z', completedAt: null,                    blocks: [{ blocked: 'ACME-9', rel: 'rel-7-9' }] },
-  { id: 'iss-8',  identifier: 'ACME-8',  title: 'Landing copy',     state: 'Todo',        milestone: 'Launch',     estimate: 1, priority: 3, assignee: 'user-ada',   startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-9',  identifier: 'ACME-9',  title: 'Email',            state: 'Todo',        milestone: 'Launch',     estimate: 2, priority: 2, assignee: null,         startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-10', identifier: 'ACME-10', title: 'Metrics',          state: 'Backlog',     milestone: 'Launch',     estimate: 3, priority: 4, assignee: null,         startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-11', identifier: 'ACME-11', title: 'Support',          state: 'Todo',        milestone: 'Launch',     estimate: 2, priority: 3, assignee: 'user-ada',   startedAt: null,                       completedAt: null,                    blocks: [] },
-  { id: 'iss-12', identifier: 'ACME-12', title: 'Launch checklist', state: 'Todo',        milestone: 'Launch',     estimate: 1, priority: 1, assignee: 'user-grace', startedAt: null,                       completedAt: null,                    blocks: [] },
+  // SII-112/113/114 only block M1.1 issues, so they stay disconnected.
+  { id: 'sii-91',  identifier: 'SII-91',  title: 'Homelab Terraform: D1, WIF, Cloud Function, Scheduler, secret placeholders', state: 'Done',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: '2026-09-20T13:19:31.498Z', completedAt: '2026-09-22T07:44:05.208Z', blocks: ['SII-110', 'SII-109', 'SII-101', 'SII-99'] },
+  { id: 'sii-109', identifier: 'SII-109', title: 'SII-93a — Homelab D1 migration: priskurven.observations',                      state: 'Done',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: '2026-09-20T14:25:51.057Z', completedAt: '2026-09-22T07:44:05.651Z', blocks: ['SII-99', 'SII-93'] },
+  // Linear has startedAt null. A done issue with no start is skipped, then the bar path calls calendarHalfForIso on null. Stand-in is the morning of the completed day.
+  { id: 'sii-110', identifier: 'SII-110', title: 'GitHub Actions secrets on KSiig/priskurven',                                  state: 'Done',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'human',   startedAt: '2026-09-28T06:00:00.000Z', completedAt: '2026-09-28T07:19:17.001Z', blocks: [] },
+  { id: 'sii-93',  identifier: 'SII-93',  title: 'SII-93b — Source interface + writer + tests (priskurven)',                    state: 'In Progress', milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: '2026-09-20T13:31:03.890Z', completedAt: null,                       blocks: ['SII-103', 'SII-92', 'SII-101', 'SII-96', 'SII-98', 'SII-94', 'SII-97', 'SII-95'] },
+  { id: 'sii-101', identifier: 'SII-101', title: 'CI: fetcher fixtures + deploy via WIF on main',                               state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-99',  identifier: 'SII-99',  title: 'History query: GET /v1/history?source=&sku=',                                 state: 'In Progress', milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: '2026-09-20T14:20:08.105Z', completedAt: null,                       blocks: [] },
+  { id: 'sii-103', identifier: 'SII-103', title: 'Orchestrator: run all sources, isolate failures, always insert',             state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: ['SII-96', 'SII-94', 'SII-92', 'SII-98', 'SII-97', 'SII-95'] },
+  { id: 'sii-92',  identifier: 'SII-92',  title: 'Min Købmand fetcher: Longjohn merchantId 769 (Holluf Pile, 5220)',             state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: ['SII-95'] },
+  { id: 'sii-94',  identifier: 'SII-94',  title: 'Rema fetcher: cphapp catalog dump, keep bar_codes',                           state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-95',  identifier: 'SII-95',  title: 'SPAR fetcher: Longjohn merchantId 1329 (Odense NØ, optional)',                state: 'Backlog',     milestone: M1, estimate: null, priority: 4, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-96',  identifier: 'SII-96',  title: 'Nemlig fetcher: timestamp/timeslot group walk',                               state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-97',  identifier: 'SII-97',  title: 'Salling Algolia: Netto, Føtex, BilkaToGo fetchers',                           state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-98',  identifier: 'SII-98',  title: 'Lidl fetcher: /q/api/search offset walk',                                     state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-112', identifier: 'SII-112', title: 'Terraform: stop restoring the priskurven placeholder function.zip',           state: 'In Progress', milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: '2026-09-28T07:40:49.849Z', completedAt: null,                       blocks: [] },
+  { id: 'sii-113', identifier: 'SII-113', title: 'CI: build and deploy priskurven-collect on push to main',                     state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
+  { id: 'sii-114', identifier: 'SII-114', title: 'Publish the history Worker at priskurven.siig.tech',                         state: 'Todo',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
 ];
 
-// Build the linear-shaped issue objects. Sort order is 1000, 2000, ... 12000.
+const idByIdentifier = new Map(ISSUE_TABLE.map((row) => [row.identifier, row.id]));
+
+// relatedIssue.id is the Linear issue id. The scheduler drops the relation
+// when that id is not in the issue set, so an identifier like "SII-93" draws nothing.
 const ISSUES = Object.freeze(ISSUE_TABLE.map((row, idx) => {
-  const relations = row.blocks.map((b) => ({
-    id: b.rel,
-    type: 'blocks',
-    relatedIssue: { id: b.blocked, identifier: b.blocked },
-  }));
+  const relations = row.blocks.map((blocked) => {
+    const id = idByIdentifier.get(blocked);
+    if (!id) throw new Error(`fixture: ${row.identifier} blocks unknown issue ${blocked}`);
+    return {
+      id: `rel-${row.identifier}-${blocked}`,
+      type: 'blocks',
+      relatedIssue: { id, identifier: blocked },
+    };
+  });
   return Object.freeze({
     id: row.id,
     identifier: row.identifier,
     title: row.title,
-    url: `https://linear.app/acme/issue/${row.identifier}`,
+    url: `https://linear.app/siig/issue/${row.identifier}`,
     estimate: row.estimate,
     priority: row.priority,
     priorityLabel: ['Urgent', 'High', 'Medium', 'Low'][row.priority - 1] ?? 'No priority',
@@ -94,29 +111,12 @@ const ISSUES = Object.freeze(ISSUE_TABLE.map((row, idx) => {
     state: stateByName(row.state),
     assignee: userById(row.assignee),
     projectMilestone: milestoneByName(row.milestone),
-    labels: { nodes: [] },
+    labels: { nodes: [{ name: row.label, color: row.label === 'human' ? '#EB5757' : '#4EA7FC' }] },
     relations: { nodes: relations },
   });
 }));
 
-// History per issue. Newest-first, as Linear returns it. The handler
-// returns it as-is to the page.
-const HISTORY = Object.freeze({
-  'iss-1': [
-    { createdAt: '2026-09-03T10:00:00.000Z', fromStateName: 'In Progress', toStateName: 'Done',        fromAssignee: 'user-ada',   toAssignee: 'user-ada' },
-    { createdAt: '2026-09-01T08:00:00.000Z', fromStateName: 'Todo',        toStateName: 'In Progress', fromAssignee: null,         toAssignee: 'user-ada' },
-  ],
-  'iss-2': [
-    { createdAt: '2026-09-05T10:00:00.000Z', fromStateName: 'In Progress', toStateName: 'Done',        fromAssignee: 'user-grace', toAssignee: 'user-grace' },
-    { createdAt: '2026-09-02T08:00:00.000Z', fromStateName: 'Todo',        toStateName: 'In Progress', fromAssignee: null,         toAssignee: 'user-grace' },
-  ],
-  'iss-3': [
-    { createdAt: '2026-09-20T08:00:00.000Z', fromStateName: 'Todo',        toStateName: 'In Progress', fromAssignee: null,         toAssignee: 'user-ada' },
-  ],
-  'iss-7': [
-    { createdAt: '2026-09-28T08:00:00.000Z', fromStateName: 'Todo',        toStateName: 'In Progress', fromAssignee: null,         toAssignee: 'user-grace' },
-  ],
-});
+const HISTORY = Object.freeze({});
 
 export function getHistoryForIssue(issueId) {
   const nodes = HISTORY[issueId] ?? [];

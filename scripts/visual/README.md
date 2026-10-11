@@ -9,7 +9,7 @@ so production code is never polluted with test scaffolding.
 |------|-------|------|
 | `run.mjs`         | SII-124 (scaffold) / SII-125 (extension) | Runner. Builds, boots `vite preview`, captures PNGs. |
 | `viewports.mjs`   | SII-124 (web) / SII-125 (3 mobile) | Viewport contracts. |
-| `fixture.mjs`     | SII-125 | Mock GraphQL fixtures (Acme Launch example). |
+| `fixture.mjs`     | SII-125 | Mock GraphQL fixtures (priskurven M1 — Shelf collector). |
 | `diff.mjs`        | SII-126 | Pixel-diff against `screenshots/visual/baseline/`. |
 
 ## Run
@@ -64,8 +64,9 @@ screenshots/visual/current/<view>/<viewport>/<theme>/<state>.png
 
 ## Mock data
 
-`fixture.mjs` exports the Acme Launch example project (12 issues, 2
-milestones, 4 workflow states, 2 assignees, 3 blocks relations). The
+`fixture.mjs` exports priskurven milestone M1 — Shelf collector (16 issues,
+1 milestone, 4 workflow states, 1 assignee, `agentic`/`human` labels,
+intra-milestone blocks). The
 GraphQL route handler in `run.mjs` dispatches on substrings of the
 request's `body.query` to return the matching fixture.
 
