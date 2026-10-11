@@ -3,9 +3,9 @@ import type { ElkNode, ElkExtendedEdge } from "elkjs/lib/elk-api";
 import type { ScheduleResult, ScheduledIssue, MilestoneInfo } from "./scheduler";
 import { buildMilestoneSummary, type MilestoneSummaryData } from "./MilestoneHeader";
 
-export const NODE_WIDTH = 240;
-export const NODE_HEIGHT = 88;
-export const PADDING = 40;
+export const NODE_WIDTH = 168;
+export const NODE_HEIGHT = 56;
+export const PADDING = 12;
 
 const elk = new ELK();
 
@@ -111,11 +111,11 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
       "elk.layered.layering.strategy": "MIN_WIDTH",
       "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "50",
-      "elk.spacing.nodeNode": "24",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "22",
+      "elk.spacing.nodeNode": "8",
       "elk.edgeRouting": "ORTHOGONAL",
-      "elk.layered.spacing.edgeEdgeBetweenLayers": "15",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "25",
+      "elk.layered.spacing.edgeEdgeBetweenLayers": "6",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "8",
     },
     children: issuesInLayout.map((issue) => ({
       id: issue.id,
@@ -201,8 +201,8 @@ export function layoutDependencyTree(schedule: ScheduleResult): Promise<TreeLayo
 export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult): Promise<TreeLayoutResult> {
   const { parentsOf, milestoneOrder, msIssuesMap, summaries } = buildParentsAndMilestones(schedule);
 
-  const BAND_TOP_PAD = 20;
-  const BAND_BOTTOM_PAD = 20;
+  const BAND_TOP_PAD = 8;
+  const BAND_BOTTOM_PAD = 8;
   const EMPTY_BAND_H = 60;
 
   const allNodes: TreeNode[] = [];
@@ -238,13 +238,13 @@ export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult)
       layoutOptions: {
         "elk.algorithm": "layered",
         "elk.direction": "DOWN",
-        "elk.layered.spacing.nodeNodeBetweenLayers": "50",
-        "elk.spacing.nodeNode": "24",
+        "elk.layered.spacing.nodeNodeBetweenLayers": "22",
+        "elk.spacing.nodeNode": "8",
         "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
         "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
         "elk.edgeRouting": "ORTHOGONAL",
-        "elk.layered.spacing.edgeEdgeBetweenLayers": "15",
-        "elk.layered.spacing.edgeNodeBetweenLayers": "25",
+        "elk.layered.spacing.edgeEdgeBetweenLayers": "6",
+        "elk.layered.spacing.edgeNodeBetweenLayers": "8",
       },
       children: msIssues.map((issue) => ({
         id: issue.id,
@@ -337,11 +337,11 @@ export async function layoutDependencyTreeGlobal(schedule: ScheduleResult): Prom
       "elk.layered.layering.strategy": "NETWORK_SIMPLEX",
       "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "50",
-      "elk.spacing.nodeNode": "24",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "22",
+      "elk.spacing.nodeNode": "8",
       "elk.edgeRouting": "ORTHOGONAL",
-      "elk.layered.spacing.edgeEdgeBetweenLayers": "15",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "25",
+      "elk.layered.spacing.edgeEdgeBetweenLayers": "6",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "8",
     },
     children: schedule.issues.map((issue) => ({
       id: issue.id,

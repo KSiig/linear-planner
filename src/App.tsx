@@ -13,8 +13,49 @@ import { StatusSelect } from "./StatusSelect";
 import { GlobalStatus } from "./GlobalStatus";
 import { ProjectSelect } from "./ProjectSelect";
 import { centerCard, tabButtonStyle, stepperButtonStyle, buttonStyle } from "./appStyles";
+import { useNarrowLayout } from "./useNarrowLayout";
 
 const modeSettingStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" };
+
+function SettingsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Settings"
+      aria-label="Settings"
+      style={{ ...buttonStyle, background: open ? "var(--surface-hover)" : "transparent", color: "var(--text-muted)", padding: "4px 8px", display: "flex", alignItems: "center" }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    </button>
+  );
+}
+
+function FilterChip({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      style={{
+        padding: "6px 12px",
+        minHeight: 32,
+        borderRadius: 999,
+        border: "1px solid var(--border)",
+        background: pressed ? "var(--accent)" : "transparent",
+        color: pressed ? "#fff" : "var(--text-muted)",
+        fontSize: 12,
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 // Don't auto-refresh if the data was already refreshed within this window.
 const AUTO_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
@@ -380,26 +421,69 @@ export default function App() {
     setProjectIssues((prev) => removeRelation(prev, relationId));
   }, [selectedProjectId, loadProject]);
 
+  const narrow = useNarrowLayout();
+
+  const settingsFields = (
+    <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: 13, color: "var(--text-muted)" }}>
+        <span>People in parallel</span>
+        <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+          <button onClick={() => setNumWorkers((n) => Math.max(1, n - 1))} disabled={numWorkers <= 1} style={stepperButtonStyle}>-</button>
+          <span style={{ padding: "4px 12px", fontSize: 13, fontWeight: 600, minWidth: 32, textAlign: "center", background: "var(--bg)", color: "var(--text)" }}>
+            {Math.min(numWorkers, maxParallelism)}
+          </span>
+          <button onClick={() => setNumWorkers((n) => Math.min(maxParallelism, n + 1))} disabled={numWorkers >= maxParallelism} style={stepperButtonStyle}>+</button>
+        </div>
+      </div>
+      <div style={{ height: 1, background: "var(--border)" }} />
+      {startedStates.length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
+            <span>Start status</span>
+            <StatusSelect states={startedStates} startedStates={startedStates} value={effectiveStartStatus} onChange={setStartStatusName} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
+            <span>End status</span>
+            <StatusSelect states={endStatusCandidates} startedStates={startedStates} value={effectiveEndStatus} onChange={setEndStatusName} />
+          </div>
+          <div style={{ height: 1, background: "var(--border)" }} />
+        </>
+      )}
+      <label
+        style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}
+        title="Re-fetch the latest Linear data whenever this tab regains focus"
+      >
+        <input type="checkbox" checked={autoRefresh} onChange={(e) => handleToggleAutoRefresh(e.target.checked)} />
+        Auto-refresh
+      </label>
+      <label
+        style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}
+        title="Allow drag-and-drop dependency edits (requires Linear write scope)"
+      >
+        <input type="checkbox" checked={writeEnabled} onChange={(e) => handleToggleWriteEnabled(e.target.checked)} />
+        Allow writes
+      </label>
+      <div style={{ height: 1, background: "var(--border)" }} />
+      <button
+        onClick={() => { setSettingsOpen(false); handleDisconnect(); }}
+        style={{ ...buttonStyle, background: "transparent", color: "var(--text-muted)", padding: "6px 12px", fontSize: 13 }}
+      >
+        Disconnect
+      </button>
+    </>
+  );
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <header style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface)", display: "flex", flexDirection: "column", gap: 8 }}>
+      <header style={{ padding: narrow && connected ? "8px 12px" : "12px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface)", display: "flex", flexDirection: "column", gap: 8, ...(narrow && connected ? { position: "sticky" as const, top: 0, zIndex: 40 } : {}) }}>
+        {!(narrow && connected) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src={`${BASE_PATH}/icon.png`} alt="" width={24} height={24} style={{ display: "block" }} />
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Linear planner</h1>
           {connected && (
             <div style={{ position: "relative", marginLeft: "auto" }}>
-              <button
-                onClick={() => setSettingsOpen((o) => !o)}
-                title="Settings"
-                aria-label="Settings"
-                style={{ ...buttonStyle, background: settingsOpen ? "var(--surface-hover)" : "transparent", color: "var(--text-muted)", padding: "4px 8px", display: "flex", alignItems: "center" }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-              {settingsOpen && (
+              <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
+              {settingsOpen && !narrow && (
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 90 }} onClick={() => setSettingsOpen(false)} />
                   <div
@@ -410,70 +494,60 @@ export default function App() {
                       display: "flex", flexDirection: "column", gap: 14,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: 13, color: "var(--text-muted)" }}>
-                      <span>People in parallel</span>
-                      <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-                        <button onClick={() => setNumWorkers((n) => Math.max(1, n - 1))} disabled={numWorkers <= 1} style={stepperButtonStyle}>-</button>
-                        <span style={{ padding: "4px 12px", fontSize: 13, fontWeight: 600, minWidth: 32, textAlign: "center", background: "var(--bg)", color: "var(--text)" }}>
-                          {Math.min(numWorkers, maxParallelism)}
-                        </span>
-                        <button onClick={() => setNumWorkers((n) => Math.min(maxParallelism, n + 1))} disabled={numWorkers >= maxParallelism} style={stepperButtonStyle}>+</button>
-                      </div>
-                    </div>
-                    <div style={{ height: 1, background: "var(--border)" }} />
-                    {startedStates.length > 0 && (
-                      <>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
-                          <span>Start status</span>
-                          <StatusSelect states={startedStates} startedStates={startedStates} value={effectiveStartStatus} onChange={setStartStatusName} />
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
-                          <span>End status</span>
-                          <StatusSelect states={endStatusCandidates} startedStates={startedStates} value={effectiveEndStatus} onChange={setEndStatusName} />
-                        </div>
-                        <div style={{ height: 1, background: "var(--border)" }} />
-                      </>
-                    )}
-                    <label
-                      style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}
-                      title="Re-fetch the latest Linear data whenever this tab regains focus"
-                    >
-                      <input type="checkbox" checked={autoRefresh} onChange={(e) => handleToggleAutoRefresh(e.target.checked)} />
-                      Auto-refresh
-                    </label>
-                    <label
-                      style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}
-                      title="Allow drag-and-drop dependency edits (requires Linear write scope)"
-                    >
-                      <input type="checkbox" checked={writeEnabled} onChange={(e) => handleToggleWriteEnabled(e.target.checked)} />
-                      Allow writes
-                    </label>
-                    <div style={{ height: 1, background: "var(--border)" }} />
-                    <button
-                      onClick={() => { setSettingsOpen(false); handleDisconnect(); }}
-                      style={{ ...buttonStyle, background: "transparent", color: "var(--text-muted)", padding: "6px 12px", fontSize: 13 }}
-                    >
-                      Disconnect
-                    </button>
+                    {settingsFields}
                   </div>
                 </>
               )}
             </div>
           )}
         </div>
+        )}
 
         {connected && (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <ProjectSelect
-                projects={selectableProjects}
-                value={selectedProjectId}
-                placeholder="Select a project…"
-                onChange={handleProjectChange}
-                maxWidth={360}
-              />
-            </div>
+            {narrow ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <ProjectSelect
+                  projects={selectableProjects}
+                  value={selectedProjectId}
+                  placeholder="Select a project…"
+                  onChange={handleProjectChange}
+                  fill
+                />
+                <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <ProjectSelect
+                  projects={selectableProjects}
+                  value={selectedProjectId}
+                  placeholder="Select a project…"
+                  onChange={handleProjectChange}
+                  maxWidth={360}
+                />
+              </div>
+            )}
             {schedule && <GlobalStatus schedule={schedule} />}
+          </>
+        )}
+        {narrow && settingsOpen && (
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.45)" }} onClick={() => setSettingsOpen(false)} />
+            <div
+              style={{
+                position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 100,
+                background: "var(--surface)", borderTop: "1px solid var(--border)",
+                borderRadius: "16px 16px 0 0",
+                boxShadow: "0 -8px 24px rgba(0,0,0,0.35)",
+                padding: 16,
+                paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+                display: "flex", flexDirection: "column", gap: 14,
+                maxHeight: "70vh", overflowY: "auto",
+              }}
+            >
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--border)", margin: "0 auto" }} />
+              {settingsFields}
+            </div>
           </>
         )}
       </header>
@@ -512,7 +586,7 @@ export default function App() {
         )}
 
         {connected && (
-          <div style={{ padding: 16, overflow: "auto" }}>
+          <div style={{ padding: narrow ? 8 : 16, overflow: "auto" }}>
             {loading && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: 64, color: "var(--text-muted)" }}>
                 <span className="spinner" />
@@ -523,18 +597,38 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "#ef4444", fontSize: 14 }}>{error}</div>
             )}
             {!loading && !error && schedule && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
-                <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
-                  <button onClick={() => setMode("workers")} style={{ ...tabButtonStyle, background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "#fff" : "var(--text-muted)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8, ...(narrow ? { flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : {}) }}>
+                <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", ...(narrow ? { width: "100%" } : {}) }}>
+                  <button aria-label="Timeline" onClick={() => setMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 4px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "#fff" : "var(--text-muted)" }}>
                     Timeline
                   </button>
-                  <button onClick={() => setMode("tree")} style={{ ...tabButtonStyle, background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "#fff" : "var(--text-muted)" }}>
-                    Tree (per milestone)
+                  <button aria-label="Tree (per milestone)" onClick={() => setMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 4px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "#fff" : "var(--text-muted)" }}>
+                    {narrow ? "Milestones" : "Tree (per milestone)"}
                   </button>
-                  <button onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "#fff" : "var(--text-muted)" }}>
-                    Tree (global)
+                  <button aria-label="Tree (global)" onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 4px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "#fff" : "var(--text-muted)" }}>
+                    {narrow ? "All issues" : "Tree (global)"}
                   </button>
                 </div>
+                {narrow ? (
+                  <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
+                    {mode === "workers" && (
+                      <>
+                        <FilterChip pressed={showWeekends} onClick={() => setShowWeekends((v) => !v)}>Weekends</FilterChip>
+                        <FilterChip pressed={showHolidays} onClick={() => setShowHolidays((v) => !v)}>Holidays</FilterChip>
+                        <FilterChip pressed={showCooldown} onClick={() => setShowCooldown((v) => !v)}>Cooldown</FilterChip>
+                      </>
+                    )}
+                    {mode === "tree" && (
+                      <>
+                        <FilterChip pressed={drawCrossMilestoneDeps} onClick={() => setDrawCrossMilestoneDeps((v) => !v)}>Cross-milestone</FilterChip>
+                        <FilterChip pressed={includeDoneIssuesTree} onClick={() => setIncludeDoneIssuesTree((v) => !v)}>Done issues</FilterChip>
+                      </>
+                    )}
+                    {mode === "treeGlobal" && (
+                      <FilterChip pressed={includeDoneIssuesTreeGlobal} onClick={() => setIncludeDoneIssuesTreeGlobal((v) => !v)}>Done issues</FilterChip>
+                    )}
+                  </div>
+                ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                   {mode === "workers" && (
                     <>
@@ -571,6 +665,7 @@ export default function App() {
                     </label>
                   )}
                 </div>
+                )}
               </div>
             )}
             {!loading && !error && schedule && mode === "workers" && (

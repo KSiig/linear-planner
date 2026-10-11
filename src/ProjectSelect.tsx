@@ -73,11 +73,14 @@ export function ProjectSelect({
   onChange,
   placeholder = "Select a project…",
   maxWidth = 360,
+  fill = false,
 }: {
   projects: LinearProject[];
   value: string;
   onChange: (projectId: string) => void;
   placeholder?: string;
+  /** Stretch the closed control to the width of its parent. */
+  fill?: boolean;
   maxWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -125,7 +128,7 @@ export function ProjectSelect({
   const activeGroup = groups.find((g) => g.id === activeTeamId) ?? groups[0] ?? null;
 
   return (
-    <div ref={containerRef} style={{ position: "relative", display: "inline-flex" }}>
+    <div ref={containerRef} style={{ position: "relative", display: fill ? "block" : "inline-flex", ...(fill ? { flex: 1, minWidth: 0, width: "100%" } : {}) }}>
       <button
         type="button"
         onClick={toggle}
@@ -133,8 +136,8 @@ export function ProjectSelect({
         aria-expanded={open}
         style={{
           ...headerInputStyle,
-          width,
-          maxWidth,
+          width: fill ? "100%" : width,
+          maxWidth: fill ? "100%" : maxWidth,
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",

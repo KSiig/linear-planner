@@ -1,6 +1,7 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import type { ScheduleResult } from "./scheduler";
 import { buildMilestoneSummary, elapsedWorkingDays, theoreticalWorkingDays } from "./MilestoneHeader";
+import { useNarrowLayout } from "./useNarrowLayout";
 
 // Match the milestone headers: orange, uppercase, tracked-out.
 const titleStyle: CSSProperties = { fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--iteration-line)", whiteSpace: "nowrap" };
@@ -67,7 +68,10 @@ export function GlobalStatus({ schedule }: { schedule: ScheduleResult }) {
     return result;
   }, [schedule]);
 
-  return (
+  const narrow = useNarrowLayout();
+  const [expanded, setExpanded] = useState(false);
+
+  const blocks = (
     <div style={{ display: "flex", alignItems: "stretch", flexWrap: "wrap", rowGap: 12 }}>
       {sections.map((sec, i) => (
         <div key={sec.title} style={{ display: "flex", alignItems: "stretch" }}>
@@ -82,6 +86,38 @@ export function GlobalStatus({ schedule }: { schedule: ScheduleResult }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+
+  if (!narrow) return blocks;
+
+  const statusLine =
+    sections.find((s) => s.title === "Ongoing")?.lines.find((l) => l.color)
+    ?? sections.find((s) => s.title.startsWith("Completed"))?.lines.find((l) => l.color);
+  const endLine = sections.find((s) => s.title === "Remaining")?.lines.find((l) => l.text.startsWith("End:"));
+  const endText = endLine ? endLine.text.replace(/^End:\s*/, "ends ") : null;
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6, width: "100%",
+          background: "transparent", border: "none", padding: "2px 0",
+          textAlign: "left", cursor: "pointer", fontSize: 13,
+        }}
+      >
+        {statusLine && (
+          <span style={{ fontWeight: 600, color: statusLine.color ?? "var(--text)" }}>{statusLine.text}</span>
+        )}
+        {statusLine && endText && <span style={{ color: "var(--text-muted)" }}>·</span>}
+        {endText && <span style={{ color: "var(--text-muted)" }}>{endText}</span>}
+        {!statusLine && !endText && <span style={{ color: "var(--text-muted)" }}>Project status</span>}
+        <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontSize: 11 }}>{expanded ? "▾" : "▸"}</span>
+      </button>
+      {expanded && <div style={{ marginTop: 8 }}>{blocks}</div>}
     </div>
   );
 }

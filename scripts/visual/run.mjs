@@ -48,7 +48,7 @@ const CLOCK_INSTANT = '2026-10-05T07:00:00.000Z';
 const AUTH_EXPIRES_AT = 1893456000000;
 const PREVIEW_BOOT_TIMEOUT_MS = 30_000;
 const OAUTH_REFRESH_URL = 'https://api.linear.app/oauth/token';
-const DATA_VIEW_PATH = '/proj-acme/';
+const DATA_VIEW_PATH = '/proj-priskurven/';
 
 const SURFACES = Object.freeze([
   Object.freeze({ view: 'landing',     state: 'sign-in',   needsAuth: false }),
@@ -99,7 +99,14 @@ function startPreview(port) {
     const preview = spawn(
       'npm',
       ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+      {
+        cwd: ROOT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        // GitHub Actions sets FORCE_COLOR, so Vite wraps "Local:" and the port
+        // in ANSI and the listen regex never matches.
+        env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      },
     );
 
     let combined = '';
@@ -118,7 +125,8 @@ function startPreview(port) {
 
     const onChunk = (chunk) => {
       combined += chunk.toString();
-      if (!resolved && /Local:\s+http:\/\/127\.0\.0\.1:\d+\//.test(combined)) {
+      const plain = combined.replace(/\u001b\[[0-9;]*m/g, '');
+      if (!resolved && /Local:\s+http:\/\/127\.0\.0\.1:\d+\//.test(plain)) {
         finishResolve();
       }
     };
@@ -326,24 +334,24 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
   } else if (surface.view === 'timeline') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Timeline' }).waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'tree') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Tree (per milestone)' }).click();
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'tree-global') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Tree (global)' }).click();
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'settings') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('ACME-1').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel('Settings').click();
     await page.getByText('People in parallel').waitFor({ state: 'visible', timeout: 15_000 });
   }

@@ -45,9 +45,9 @@ jobs:
           npm run visual:diff | tee /tmp/visual-diff.txt
           echo
           # The diff command prints a markdown table with one row per screenshot.
-          # A row contains at least the columns: view, viewport, state, pass.
-          # The header line therefore has all four tokens on a single line.
-          if grep -qiE 'view.*viewport.*state.*pass' /tmp/visual-diff.txt; then
+          # The header line is: view, viewport, theme, state, status.
+          # A data row says PASS or FAIL, so "pass" is not on the header line.
+          if grep -qiE 'view.*viewport.*state.*status' /tmp/visual-diff.txt; then
             {
               echo "## Visual diff"
               echo

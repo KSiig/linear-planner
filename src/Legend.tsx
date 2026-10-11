@@ -3,12 +3,14 @@ import type { ScheduledIssue } from "./scheduler";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon } from "./CardIcons";
 import { BLOCKED_STRIPE, NO_ESTIMATE_BG, DONE_STRIPE } from "./cardStyle";
+import { useNarrowLayout } from "./useNarrowLayout";
 
 interface LegendProps {
   issues: ScheduledIssue[];
 }
 
 export function Legend({ issues }: LegendProps) {
+  const narrow = useNarrowLayout();
   const statuses = useMemo(() => {
     const seen = new Map<string, { name: string; type: string; color: string; progress: number }>();
     for (const issue of issues) {
@@ -24,6 +26,8 @@ export function Legend({ issues }: LegendProps) {
       return a.progress - b.progress;
     });
   }, [issues]);
+
+  if (narrow) return null;
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, padding: "12px 16px", fontSize: 12, color: "var(--text-muted)", alignItems: "center" }}>

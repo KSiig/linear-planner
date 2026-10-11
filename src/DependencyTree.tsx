@@ -3,14 +3,52 @@ import type { ScheduleResult, ScheduledIssue } from "./scheduler";
 import { dayToDate, formatDate, formatParisTimeOfDay } from "./workingDays";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon, PriorityIcon, AssigneeAvatar, DurationBadge } from "./CardIcons";
-import { MilestoneHeader } from "./MilestoneHeader";
+import { MilestoneHeader, MilestoneBandLabel } from "./MilestoneHeader";
+import { useNarrowLayout } from "./useNarrowLayout";
 import { Legend } from "./Legend";
 import { BLOCKED_STRIPE, NO_ESTIMATE_BG, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker } from "./cardStyle";
 import { layoutDependencyTree, layoutDependencyTreeGlobal, layoutDependencyTreePerMilestone, edgePath, NODE_WIDTH, NODE_HEIGHT, type TreeLayoutResult } from "./treeLayout";
 
 const LABEL_WIDTH = 220;
+const BAND_HEADER_H = 36;
 
 const EMPTY_LAYOUT: TreeLayoutResult = { nodes: [], edges: [], bands: [], contentWidth: 0, contentHeight: 0 };
+
+/**
+ * Insert a header slot at the top of each milestone band and push nodes and edges down
+ * so the cards stay below the label. Band yStart values are the pre-shift layout.
+ */
+function withBandHeaders(layout: TreeLayoutResult, header: number): TreeLayoutResult {
+  if (layout.bands.length === 0 || header === 0) return layout;
+  const shiftY = (y: number) => {
+    let index = -1;
+    for (let i = 0; i < layout.bands.length; i++) {
+      if (y >= layout.bands[i].yStart) index = i;
+      else break;
+    }
+    return y + (index + 1) * header;
+  };
+  return {
+    ...layout,
+    contentHeight: layout.contentHeight + layout.bands.length * header,
+    bands: layout.bands.map((band, i) => ({
+      ...band,
+      yStart: band.yStart + i * header,
+      yEnd: band.yEnd + (i + 1) * header,
+    })),
+    nodes: layout.nodes.map((node) => ({ ...node, y: shiftY(node.y) })),
+    edges: layout.edges.map((edge) => ({
+      ...edge,
+      from: { ...edge.from, y: shiftY(edge.from.y) },
+      to: { ...edge.to, y: shiftY(edge.to.y) },
+      sections: edge.sections?.map((section) => ({
+        startPoint: { ...section.startPoint, y: shiftY(section.startPoint.y) },
+        endPoint: { ...section.endPoint, y: shiftY(section.endPoint.y) },
+        bendPoints: section.bendPoints?.map((point) => ({ ...point, y: shiftY(point.y) })),
+      })),
+    })),
+  };
+}
 
 export type TreeVariant = "split" | "individual" | "global";
 
@@ -101,8 +139,11 @@ export function DependencyTree({
     return () => { cancelled = true; };
   }, [filteredSchedule, variant]);
 
-  const contentWidth = Math.max(layout.contentWidth, 400);
-  const contentHeight = Math.max(layout.contentHeight, 100);
+  const narrow = useNarrowLayout();
+  const view = useMemo(() => (narrow ? withBandHeaders(layout, BAND_HEADER_H) : layout), [narrow, layout]);
+  const contentWidth = Math.max(view.contentWidth, 400);
+  const contentHeight = Math.max(view.contentHeight, 100);
+  const showRail = view.bands.length > 0 && !narrow;
 
   const legend = <Legend issues={schedule.issues} />;
 
@@ -123,9 +164,9 @@ export function DependencyTree({
           cursor: isDragging ? "grabbing" : "default",
         }}
       >
-        <div style={{ display: "flex", minWidth: (layout.bands.length > 0 ? LABEL_WIDTH : 0) + contentWidth, height: contentHeight }}>
+        <div style={{ display: "flex", minWidth: (showRail ? LABEL_WIDTH : 0) + contentWidth, height: contentHeight }}>
           {/* Left labels — one block per milestone, sized to that milestone's band */}
-          {layout.bands.length > 0 && (
+          {showRail && (
             <div
               style={{
                 width: LABEL_WIDTH,
@@ -137,7 +178,7 @@ export function DependencyTree({
                 borderRight: "1px solid var(--border)",
               }}
             >
-              {layout.bands.map((band) => (
+              {view.bands.map((band) => (
                 <div
                   key={band.name}
                   style={{
@@ -162,7 +203,27 @@ export function DependencyTree({
           {/* Tree area — single SVG for all edges (including cross-milestone) + all nodes */}
           <div style={{ flex: 1, position: "relative", height: contentHeight }}>
             {/* Horizontal milestone separators (border-top at each band's yStart) */}
-            {layout.bands.map((band) => (
+            {narrow && view.bands.map((band) => (
+              <div
+                key={`band-${band.name}`}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: band.yStart,
+                  width: contentWidth,
+                  height: BAND_HEADER_H,
+                  borderTop: "2px solid var(--iteration-line)",
+                  background: "var(--surface)",
+                  zIndex: 5,
+                  boxSizing: "border-box",
+                }}
+              >
+                <div style={{ position: "sticky", left: 0, width: "fit-content", maxWidth: "100%", padding: "8px 12px", fontSize: 12, fontWeight: 700, color: "var(--iteration-line)", whiteSpace: "nowrap" }}>
+                  <MilestoneBandLabel name={band.name} summary={band.summary} />
+                </div>
+              </div>
+            ))}
+            {!narrow && view.bands.map((band) => (
               <div
                 key={`sep-${band.name}`}
                 style={{
@@ -184,7 +245,7 @@ export function DependencyTree({
               height={contentHeight}
               style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 1 }}
             >
-              {layout.edges.map((e, i) => {
+              {view.edges.map((e, i) => {
                 const d = edgePath(e);
                 const endPt = e.sections?.at(-1)?.endPoint ?? { x: e.to.x + NODE_WIDTH / 2, y: e.to.y };
                 const arrowSize = 6;
@@ -213,7 +274,7 @@ export function DependencyTree({
             </svg>
 
             {/* Node cards */}
-            {layout.nodes.map((node) => {
+            {view.nodes.map((node) => {
               const isBlocked = isBlockedDisplay(node.issue);
               // Don't allow dropping the dragged card onto one that already blocks it
               // (would create a duplicate relation).
@@ -279,12 +340,12 @@ export function DependencyTree({
                     border: isDropTarget
                       ? "2px dashed var(--accent)"
                       : hoveredId === node.issue.id ? "1px solid var(--accent)" : "1px solid var(--border)",
-                    borderRadius: 6,
-                    padding: "8px 10px",
+                    borderRadius: 4,
+                    padding: "3px 6px",
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "flex-start",
-                    gap: 4,
+                    gap: 1,
                     cursor: writeEnabled ? (draggingId === node.issue.id ? "grabbing" : "grab") : "pointer",
                     opacity: (node.issue.done ? 0.5 : 1) * (draggingId === node.issue.id ? 0.4 : 1),
                     fontSize: 11,
@@ -292,13 +353,13 @@ export function DependencyTree({
                     zIndex: hoveredId === node.issue.id || isDropTarget ? 4 : 2,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <AssigneeAvatar url={node.issue.assigneeAvatarUrl} name={node.issue.assigneeName} size={18} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, overflow: "hidden" }}>
+                    <AssigneeAvatar url={node.issue.assigneeAvatarUrl} name={node.issue.assigneeName} size={14} />
                     <StatusCircle
                       stateType={node.issue.stateType}
                       color={node.issue.stateColor}
                       progress={node.issue.stateProgress}
-                      size={14}
+                      size={12}
                     />
                     {isBlocked && <BlockedIcon />}
                     <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)", flexShrink: 0 }}>
@@ -316,9 +377,9 @@ export function DependencyTree({
                     style={{
                       color: "var(--text)",
                       fontWeight: 500,
-                      lineHeight: 1.3,
+                      lineHeight: 1.2,
                       display: "-webkit-box",
-                      WebkitLineClamp: 2,
+                      WebkitLineClamp: 1,
                       WebkitBoxOrient: "vertical",
                       overflow: "hidden",
                     }}

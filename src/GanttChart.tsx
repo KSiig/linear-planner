@@ -3,8 +3,9 @@ import type { ScheduleResult, ScheduledIssue } from "./scheduler";
 import { dayToDate, formatDate, isBankHoliday, formatParisTimeOfDay, isAfterThreshold } from "./workingDays";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon, PriorityIcon, AssigneeAvatar, DurationBadge } from "./CardIcons";
-import { MilestoneHeader, buildMilestoneSummary, type MilestoneSummaryData } from "./MilestoneHeader";
+import { MilestoneHeader, MilestoneBandLabel, buildMilestoneSummary, type MilestoneSummaryData } from "./MilestoneHeader";
 import { Legend } from "./Legend";
+import { useNarrowLayout } from "./useNarrowLayout";
 import { BLOCKED_STRIPE, NO_ESTIMATE_BG, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay } from "./cardStyle";
 import {
   ROW_HEIGHT, ROW_GAP, CYCLE_ROW_HEIGHT, DATE_ROW_HEIGHT, HEADER_HEIGHT,
@@ -41,6 +42,7 @@ interface GanttChartProps {
 }
 
 export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown }: GanttChartProps) {
+  const narrow = useNarrowLayout();
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltipInfo, setTooltipInfo] = useState<{ issue: ScheduledIssue; x: number; y: number } | null>(null);
   const [msHeaderHeights, setMsHeaderHeights] = useState<Record<string, number>>({});
@@ -309,8 +311,9 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown 
           position: "relative",
         }}
       >
-        <div style={{ display: "flex", minWidth: LABEL_WIDTH + chartWidth }}>
-          {/* Left labels */}
+        <div style={{ display: "flex", minWidth: (narrow ? 0 : LABEL_WIDTH) + chartWidth }}>
+          {/* Left labels. On a phone the rail takes the chart's width, so the summary moves onto a band. */}
+          {!narrow && (
           <div
             style={{
               width: LABEL_WIDTH,
@@ -352,6 +355,7 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown 
               );
             })}
           </div>
+          )}
 
           {/* Chart area */}
           <div style={{ flex: 1, position: "relative" }}>
@@ -491,7 +495,15 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown 
                 const rowsH = group.workerRows.length * (ROW_HEIGHT + ROW_GAP);
                 const milestoneH = Math.max(labelH, rowsH);
                 return (
-                <div key={mid} style={{ height: milestoneH, position: "relative", zIndex: 3, borderTop: "2px solid var(--iteration-line)" }}>
+                <div key={mid}>
+                  {narrow && (
+                    <div style={{ width: chartWidth, borderTop: "2px solid var(--iteration-line)", background: "var(--surface)" }}>
+                      <div style={{ position: "sticky", left: 0, width: "fit-content", maxWidth: "100%", padding: "7px 10px", fontSize: 12, fontWeight: 700, color: "var(--iteration-line)", whiteSpace: "nowrap" }}>
+                        <MilestoneBandLabel name={group.milestoneName} summary={group.summary} />
+                      </div>
+                    </div>
+                  )}
+                <div style={{ height: narrow ? rowsH : milestoneH, position: "relative", zIndex: 3, borderTop: narrow ? "none" : "2px solid var(--iteration-line)" }}>
                   {group.workerRows.map((row) => (
                     <div key={row.worker} style={{ position: "relative", zIndex: 2, height: ROW_HEIGHT + ROW_GAP, display: "flex", alignItems: "center" }}>
                       {row.issues.map((issue) => {
@@ -580,6 +592,7 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown 
                       })}
                     </div>
                   ))}
+                </div>
                 </div>
                 );
               })}
