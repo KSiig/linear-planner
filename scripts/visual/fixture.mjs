@@ -108,6 +108,7 @@ const ISSUES = Object.freeze(ISSUE_TABLE.map((row, idx) => {
     sortOrder: (idx + 1) * 1000,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
+    dueDate: null,
     state: stateByName(row.state),
     assignee: userById(row.assignee),
     projectMilestone: milestoneByName(row.milestone),

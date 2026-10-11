@@ -14,6 +14,8 @@ export interface LinearIssue {
   sortOrder: number;
   startedAt: string | null;
   completedAt: string | null;
+  /** Linear due date as `YYYY-MM-DD`, or null when the issue has none. */
+  dueDate: string | null;
   state: { name: string; type: string; color: string; position: number };
   assignee: { id: string; name: string; avatarUrl: string | null } | null;
   projectMilestone: { id: string; name: string; sortOrder: number } | null;
@@ -275,6 +277,7 @@ export async function fetchProjectIssues(projectId: string): Promise<LinearIssue
               sortOrder
               startedAt
               completedAt
+              dueDate
               assignee { id name avatarUrl }
               state { name type color position }
               projectMilestone { id name sortOrder }
