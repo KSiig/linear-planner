@@ -99,7 +99,14 @@ function startPreview(port) {
     const preview = spawn(
       'npm',
       ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+      {
+        cwd: ROOT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        // GitHub Actions sets FORCE_COLOR, so Vite wraps "Local:" and the port
+        // in ANSI and the listen regex never matches.
+        env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      },
     );
 
     let combined = '';
@@ -118,7 +125,8 @@ function startPreview(port) {
 
     const onChunk = (chunk) => {
       combined += chunk.toString();
-      if (!resolved && /Local:\s+http:\/\/127\.0\.0\.1:\d+\//.test(combined)) {
+      const plain = combined.replace(/\u001b\[[0-9;]*m/g, '');
+      if (!resolved && /Local:\s+http:\/\/127\.0\.0\.1:\d+\//.test(plain)) {
         finishResolve();
       }
     };
