@@ -172,7 +172,7 @@ A harness error is a build failure. Harness errors are:
 
 The job detects the last case by grepping the command output for a
 line that contains the four column names `view`, `viewport`, `state`,
-and `pass`. If that line is missing, the job fails with a clear
+and `status`. If that line is missing, the job fails with a clear
 harness-error annotation. If it is present — even when individual rows
 are `fail` — the job exits 0 and the table goes into the step summary.
 
