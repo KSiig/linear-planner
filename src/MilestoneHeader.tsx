@@ -91,6 +91,9 @@ export function buildMilestoneSummary(
   // per-milestone it's misleading once people split their time across milestones. So
   // callers can opt out of the status lines while keeping the counts.
   includeStatus: boolean = true,
+  // Packed undated work is a capacity forecast. Leave it out of the end date unless the
+  // timeline is drawing that forecast. Counts still include those issues.
+  includeCapacityForecast: boolean = false,
 ): MilestoneSummaryData {
   const count = msIssues.length;
   const empty: MilestoneSummaryData = { issueCount: `${count} issue${count !== 1 ? "s" : ""}`, totalDays: null, startedAt: null, targetDays: "", targetEnd: "", soFarLabel: null, soFarCount: null, soFarDays: null, soFarStatus: null, soFarColor: null, ongoingLabel: null, ongoingCount: null, ongoingStatus: null, ongoingColor: null };
@@ -99,14 +102,19 @@ export function buildMilestoneSummary(
   const estimatedIssues = msIssues.filter((i) => i.hasEstimate);
   if (estimatedIssues.length === 0) return empty;
 
-  const minStartDay = Math.min(...estimatedIssues.map((i) => i.startDay));
-  const maxEndDay = Math.max(...estimatedIssues.map((i) => i.endDay));
+  const placedIssues = includeCapacityForecast
+    ? estimatedIssues
+    : estimatedIssues.filter((i) => !i.isCapacityForecast);
+  const minStartDay = placedIssues.length > 0 ? Math.min(...placedIssues.map((i) => i.startDay)) : 0;
+  const maxEndDay = placedIssues.length > 0 ? Math.max(...placedIssues.map((i) => i.endDay)) : 0;
 
-  const hasStarted = estimatedIssues.some((i) => i.stateType === "started" || i.done);
-  const allDone = estimatedIssues.every((i) => i.done);
-  const endStr = allDone
-    ? formatDate(dayToDate(startDate, maxEndDay - 1))
-    : `~${formatDate(dayToDate(startDate, maxEndDay - 1))}`;
+  const hasStarted = placedIssues.some((i) => i.stateType === "started" || i.done);
+  const allDone = placedIssues.length > 0 && placedIssues.every((i) => i.done);
+  const endStr = placedIssues.length === 0
+    ? ""
+    : allDone
+      ? formatDate(dayToDate(startDate, maxEndDay - 1))
+      : `~${formatDate(dayToDate(startDate, maxEndDay - 1))}`;
 
   const w = Math.max(1, numWorkers);
   const fmtDays = (d: number) => { const v = d / w; return v % 1 === 0 ? `${v}` : v.toFixed(1); };
@@ -185,7 +193,7 @@ export function buildMilestoneSummary(
     totalDays: totalDaysStr,
     startedAt,
     targetDays: unstartedStr,
-    targetEnd: `End: ${endStr}`,
+    targetEnd: endStr ? `End: ${endStr}` : "",
     soFarLabel, soFarCount, soFarDays,
     soFarStatus: includeStatus ? soFarStatus : null,
     soFarColor: includeStatus ? soFarColor : null,
@@ -228,12 +236,12 @@ export function MilestoneHeader({ name, summary }: { name: string; summary: Mile
           {summary.ongoingStatus && <span style={{ ...indentLineStyle, color: summary.ongoingColor ?? "var(--text-muted)", fontWeight: 600 }}>{summary.ongoingStatus}</span>}
         </>
       )}
-      {summary.targetEnd && (
+      {(summary.targetEnd || summary.targetDays) && (
         <>
           <div style={spacerStyle} />
           <span style={boldLineStyle}>Remaining</span>
           {summary.targetDays && <span style={indentLineStyle}>{summary.targetDays}</span>}
-          <span style={indentLineStyle}>{summary.targetEnd}</span>
+          {summary.targetEnd && <span style={indentLineStyle}>{summary.targetEnd}</span>}
         </>
       )}
       {summary.soFarLabel && (

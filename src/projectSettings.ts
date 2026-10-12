@@ -16,6 +16,8 @@ export interface ProjectSettings {
   showWeekends: boolean;
   showHolidays: boolean;
   showCooldown: boolean;
+  /** Draw unstarted issues that have no due date on the timeline, hatched, packed from today. */
+  showCapacityForecast: boolean;
   startStatusName: string;
   endStatusName: string;
 }
@@ -29,6 +31,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   showWeekends: false,
   showHolidays: true,
   showCooldown: true,
+  showCapacityForecast: false,
   startStatusName: "",
   endStatusName: "",
 };
@@ -55,6 +58,7 @@ export function loadProjectSettings(projectId: string): ProjectSettings {
       showWeekends: data.showWeekends ?? false,
       showHolidays: data.showHolidays ?? true,
       showCooldown: data.showCooldown ?? true,
+      showCapacityForecast: data.showCapacityForecast ?? false,
       startStatusName: typeof data.startStatusName === "string" ? data.startStatusName : "",
       endStatusName: typeof data.endStatusName === "string" ? data.endStatusName : "",
     };

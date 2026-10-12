@@ -336,6 +336,27 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     await assertNoErrorBanners(page);
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Timeline' }).waitFor({ state: 'visible', timeout: 15_000 });
+    const undated = page.getByRole('region', { name: 'No due date' });
+    await undated.waitFor({ state: 'visible', timeout: 15_000 });
+    await undated.getByText('SII-101').waitFor({ state: 'visible', timeout: 15_000 });
+    await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
+    if (await undated.getByText('SII-93').count() !== 0) {
+      fail('in-progress SII-93 was listed under No due date');
+    }
+    const forecastCheckbox = page.getByRole('checkbox', { name: 'Capacity forecast' });
+    const forecastChip = page.getByRole('button', { name: 'Forecast', exact: true });
+    if (await forecastCheckbox.count()) {
+      await forecastCheckbox.check();
+    } else {
+      await forecastChip.click();
+    }
+    await undated.getByText('Hatched bars on the timeline are a capacity forecast, not a deadline.').waitFor({ state: 'visible', timeout: 15_000 });
+    if (await forecastCheckbox.count()) {
+      await forecastCheckbox.uncheck();
+    } else {
+      await forecastChip.click();
+    }
+    await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'tree') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);

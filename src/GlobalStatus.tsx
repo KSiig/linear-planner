@@ -18,10 +18,10 @@ interface Section {
  * stays consistent with the per-milestone summaries, just laid out left-to-right:
  *   Global count & started | Ongoing | Remaining | Completed
  */
-export function GlobalStatus({ schedule }: { schedule: ScheduleResult }) {
+export function GlobalStatus({ schedule, includeCapacityForecast = false }: { schedule: ScheduleResult; includeCapacityForecast?: boolean }) {
   const sections = useMemo<Section[]>(() => {
     const issues = schedule.issues;
-    const summary = buildMilestoneSummary(issues, schedule.startDate, schedule.configuredWorkers, schedule.cycles, true);
+    const summary = buildMilestoneSummary(issues, schedule.startDate, schedule.configuredWorkers, schedule.cycles, true, includeCapacityForecast);
     const result: Section[] = [];
 
     // Global: issue count + overall progress, in the SAME wall-clock terms as the Completed
@@ -49,11 +49,11 @@ export function GlobalStatus({ schedule }: { schedule: ScheduleResult }) {
       result.push({ title: summary.ongoingLabel, lines });
     }
 
-    // Remaining
-    if (summary.targetEnd) {
+    // Remaining. The end date is omitted when the only unstarted work is an undated forecast.
+    if (summary.targetDays || summary.targetEnd) {
       const lines: Section["lines"] = [];
       if (summary.targetDays) lines.push({ text: summary.targetDays });
-      lines.push({ text: summary.targetEnd });
+      if (summary.targetEnd) lines.push({ text: summary.targetEnd });
       result.push({ title: "Remaining", lines });
     }
 
@@ -66,7 +66,7 @@ export function GlobalStatus({ schedule }: { schedule: ScheduleResult }) {
     }
 
     return result;
-  }, [schedule]);
+  }, [schedule, includeCapacityForecast]);
 
   const narrow = useNarrowLayout();
   const [expanded, setExpanded] = useState(false);

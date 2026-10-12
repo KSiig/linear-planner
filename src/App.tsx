@@ -69,6 +69,7 @@ export default function App() {
   const [showWeekends, setShowWeekends] = useState(false);
   const [showHolidays, setShowHolidays] = useState(true);
   const [showCooldown, setShowCooldown] = useState(true);
+  const [showCapacityForecast, setShowCapacityForecast] = useState(false);
   const [drawCrossMilestoneDeps, setDrawCrossMilestoneDeps] = useState(false);
   const [includeDoneIssuesTree, setIncludeDoneIssuesTree] = useState(true);
   const [includeDoneIssuesTreeGlobal, setIncludeDoneIssuesTreeGlobal] = useState(true);
@@ -200,6 +201,7 @@ export default function App() {
           setShowWeekends(ps.showWeekends);
           setShowHolidays(ps.showHolidays);
           setShowCooldown(ps.showCooldown);
+          setShowCapacityForecast(ps.showCapacityForecast);
           setStartStatusName(ps.startStatusName);
           setEndStatusName(ps.endStatusName);
         }
@@ -216,9 +218,9 @@ export default function App() {
 
   useEffect(() => {
     if (connected && selectedProjectId) {
-      saveProjectSettings(selectedProjectId, { numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, startStatusName, endStatusName });
+      saveProjectSettings(selectedProjectId, { numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName });
     }
-  }, [connected, selectedProjectId, numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, startStatusName, endStatusName]);
+  }, [connected, selectedProjectId, numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName]);
 
   useEffect(() => {
     if (connected && selectedProjectId) {
@@ -239,6 +241,7 @@ export default function App() {
         setShowWeekends(ps.showWeekends);
         setShowHolidays(ps.showHolidays);
         setShowCooldown(ps.showCooldown);
+        setShowCapacityForecast(ps.showCapacityForecast);
         setStartStatusName(ps.startStatusName);
         setEndStatusName(ps.endStatusName);
         setSelectedProjectId(pid);
@@ -527,7 +530,7 @@ export default function App() {
                 />
               </div>
             )}
-            {schedule && <GlobalStatus schedule={schedule} />}
+            {schedule && <GlobalStatus schedule={schedule} includeCapacityForecast={showCapacityForecast} />}
           </>
         )}
         {narrow && settingsOpen && (
@@ -616,6 +619,7 @@ export default function App() {
                         <FilterChip pressed={showWeekends} onClick={() => setShowWeekends((v) => !v)}>Weekends</FilterChip>
                         <FilterChip pressed={showHolidays} onClick={() => setShowHolidays((v) => !v)}>Holidays</FilterChip>
                         <FilterChip pressed={showCooldown} onClick={() => setShowCooldown((v) => !v)}>Cooldown</FilterChip>
+                        <FilterChip pressed={showCapacityForecast} onClick={() => setShowCapacityForecast((v) => !v)}>Forecast</FilterChip>
                       </>
                     )}
                     {mode === "tree" && (
@@ -644,6 +648,10 @@ export default function App() {
                         <input type="checkbox" checked={showCooldown} onChange={(e) => setShowCooldown(e.target.checked)} />
                         Show cooldown
                       </label>
+                      <label style={modeSettingStyle} title="Place issues with no due date on the timeline from today. The bars are a forecast, not a deadline.">
+                        <input type="checkbox" checked={showCapacityForecast} onChange={(e) => setShowCapacityForecast(e.target.checked)} />
+                        Capacity forecast
+                      </label>
                     </>
                   )}
                   {mode === "tree" && (
@@ -669,7 +677,7 @@ export default function App() {
               </div>
             )}
             {!loading && !error && schedule && mode === "workers" && (
-              <GanttChart schedule={schedule} showWeekends={showWeekends} showHolidays={showHolidays} showCooldown={showCooldown} />
+              <GanttChart schedule={schedule} showWeekends={showWeekends} showHolidays={showHolidays} showCooldown={showCooldown} showCapacityForecast={showCapacityForecast} />
             )}
             {!loading && !error && schedule && mode === "tree" && (
               <DependencyTree

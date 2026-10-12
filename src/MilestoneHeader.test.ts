@@ -251,4 +251,18 @@ describe("buildMilestoneSummary", () => {
       expect(summary.soFarStatus).toBe("On time");
     });
   });
+
+  it("leaves a capacity-forecast end date out of the milestone end", () => {
+    const placed = makeScheduledIssue({
+      id: "a", identifier: "A-1", estimate: 2, startDay: 0, endDay: 2, isCapacityForecast: false,
+    });
+    const forecast = makeScheduledIssue({
+      id: "b", identifier: "A-2", estimate: 5, startDay: 0, endDay: 40, isCapacityForecast: true,
+    });
+    const hidden = buildMilestoneSummary([placed, forecast], MONDAY, 1, [], false, false);
+    const shown = buildMilestoneSummary([placed, forecast], MONDAY, 1, [], false, true);
+    expect(hidden.targetEnd).toBe(buildMilestoneSummary([placed], MONDAY, 1, [], false, false).targetEnd);
+    expect(shown.targetEnd).not.toBe(hidden.targetEnd);
+    expect(hidden.issueCount).toBe("2 issues");
+  });
 });
