@@ -1622,6 +1622,21 @@ describe("scheduleIssues", () => {
       expect(dated.endDay).toBe(dueOffset + 1);
       expect(open.startDay).toBeGreaterThanOrEqual(todayOffset - 2);
       expect(open.startDay).toBeLessThan(dated.startDay);
+      expect(open.isCapacityForecast).toBe(true);
+      expect(dated.isCapacityForecast).toBe(false);
+    });
+
+    it("does not mark in-progress work as a capacity forecast", () => {
+      const issues = [
+        makeIssue({
+          id: "started", identifier: "A-1", estimate: 1,
+          startedAt: isoDate(chartStart),
+          state: { name: "In Progress", type: "started", color: "#36f", position: 2 },
+        }),
+      ];
+      const started = findIssue(scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES), "A-1")!;
+      expect(started.isCapacityForecast).toBe(false);
+      expect(started.startDay).toBe(0);
     });
 
     it("extends an overdue open issue through today and marks it late", () => {
@@ -1718,7 +1733,8 @@ describe("scheduleIssues", () => {
       const issues = [
         makeIssue({ id: "d1", identifier: "A-1", dueDate: due }),
         makeIssue({ id: "d2", identifier: "A-2", dueDate: due }),
-        makeIssue({ id: "open", identifier: "A-3", estimate: 30 }),
+        // Long enough to still cover the due date when today is already in the afternoon.
+        makeIssue({ id: "open", identifier: "A-3", estimate: 60 }),
       ];
       const result = scheduleIssues(issues, 1, chartStart, [], [], WORKFLOW_STATES);
       const d1 = findIssue(result, "A-1")!;

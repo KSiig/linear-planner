@@ -34,6 +34,11 @@ export interface ScheduledIssue {
   isLate: boolean; // open past its estimate, or an open issue whose due date has passed
   /** Linear due date (`YYYY-MM-DD`) when the issue has one. */
   dueDate: string | null;
+  /**
+   * Unstarted work with no due date. The scheduler still packs it from today so a capacity
+   * forecast can be drawn. The timeline leaves it off the date axis unless that forecast is on.
+   */
+  isCapacityForecast: boolean;
   blockedBy: Array<{ id: string; identifier: string; title: string; done: boolean; relationId: string }>;
   startedAtRaw: string | null;
   endedAtRaw: string | null;
@@ -779,6 +784,7 @@ export function scheduleIssues(
       assigneeAvatarUrl: issue.assignee?.avatarUrl ?? null, assigneeName: issue.assignee?.name ?? null,
       daysSpent, hasEstimate, done: isDone(issue), isLate,
       dueDate: issue.dueDate ? issue.dueDate.slice(0, 10) : null,
+      isCapacityForecast: false,
       startedAtRaw: effectiveStartedAtRaw,
       endedAtRaw: isDone(issue) ? (doneEndDateStr.get(issue.id) ?? null) : null,
       labels: issue.labels.nodes,
@@ -922,7 +928,11 @@ export function scheduleIssues(
     scheduled.push(buildScheduledIssue(issue, est, est, startSi, endSi, bestWorker));
   }
 
-  // --- Phase 2: schedule remaining non-done issues per milestone ---
+  // --- Phase 2: pack remaining non-done issues per milestone ---
+  // What is left here has no due date and is not already in progress. The pack still starts
+  // at today so the capacity forecast can draw it. Each of those bars is marked
+  // isCapacityForecast; the timeline keeps them off the date axis unless that forecast is on.
+  // An undated issue still waits until a due-dated blocker ends.
   const unpinned = issues.filter((i) => !scheduledIds.has(i.id) && !isDone(i));
 
   const unpinnedByMs = new Map<string | null, LinearIssue[]>();
@@ -944,7 +954,9 @@ export function scheduleIssues(
     endSiMap.set(issue.id, endSi);
     scheduledIds.add(issue.id);
 
-    scheduled.push(buildScheduledIssue(issue, est, est, startSi, endSi, worker));
+    const built = buildScheduledIssue(issue, est, est, startSi, endSi, worker);
+    built.isCapacityForecast = true;
+    scheduled.push(built);
   }
 
   for (const msId of msOrder) {

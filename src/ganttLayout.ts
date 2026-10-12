@@ -18,6 +18,31 @@ export interface DayInfo {
   isCycleStart: boolean;
 }
 
+/**
+ * How many calendar columns the timeline should allocate.
+ * With the capacity forecast off, unstarted issues that have no due date must not stretch
+ * the chart. The span still covers today, every bar that stays on the axis, and any cycle
+ * that holds one of those.
+ */
+export function timelineSpanDays(
+  issues: Array<{ startDay: number; endDay: number; isCapacityForecast: boolean }>,
+  cycles: Array<{ startDay: number; endDay: number }>,
+  todayOffset: number,
+  showCapacityForecast: boolean,
+  scheduleTotalDays: number,
+): number {
+  if (showCapacityForecast) return Math.max(Math.ceil(scheduleTotalDays), 1);
+  const axis = issues.filter((issue) => !issue.isCapacityForecast);
+  let end = Math.max(Math.ceil(todayOffset) + 1, 1);
+  for (const issue of axis) end = Math.max(end, Math.ceil(issue.endDay));
+  for (const cycle of cycles) {
+    const holdsAxis = axis.some((issue) => issue.startDay < cycle.endDay && issue.endDay > cycle.startDay);
+    const holdsToday = todayOffset >= cycle.startDay && todayOffset < cycle.endDay;
+    if (holdsAxis || holdsToday) end = Math.max(end, Math.ceil(cycle.endDay));
+  }
+  return Math.max(end, 1);
+}
+
 export function isOutsideCycles(day: number, cycles: CyclePeriod[]): boolean {
   if (cycles.length === 0) return false;
   return !cycles.some((c) => day >= c.startDay && day < c.endDay);
