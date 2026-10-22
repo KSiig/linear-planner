@@ -62,6 +62,17 @@ function milestoneByName(name) {
 
 const M1 = 'M1 — Shelf collector';
 
+const FALLBACK_UPDATED_AT = '2026-09-01T00:00:00.000Z';
+
+// Due dates are relative to harness today 2026-10-05 (Europe/Paris).
+// SII-101, SII-93, and SII-95 stay dueDate null so the timeline assertions hold.
+const DUE_BY_IDENTIFIER = Object.freeze({
+  'SII-103': '2026-09-28', // Overdue
+  'SII-92': '2026-10-05',  // Next
+  'SII-94': '2026-10-20',  // Soon (day 15)
+  'SII-96': '2026-11-20',  // Later (day 46)
+});
+
 const ISSUE_TABLE = [
   // SII-112/113/114 only block M1.1 issues, so they stay disconnected.
   { id: 'sii-91',  identifier: 'SII-91',  title: 'Homelab Terraform: D1, WIF, Cloud Function, Scheduler, secret placeholders', state: 'Done',        milestone: M1, estimate: null, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: '2026-09-20T13:19:31.498Z', completedAt: '2026-09-22T07:44:05.208Z', blocks: ['SII-110', 'SII-109', 'SII-101', 'SII-99'] },
@@ -108,7 +119,9 @@ const ISSUES = Object.freeze(ISSUE_TABLE.map((row, idx) => {
     sortOrder: (idx + 1) * 1000,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
-    dueDate: null,
+    updatedAt: row.startedAt ?? FALLBACK_UPDATED_AT,
+    dueDate: DUE_BY_IDENTIFIER[row.identifier] ?? null,
+    project: { id: PROJECT.id, name: PROJECT.name },
     state: stateByName(row.state),
     assignee: userById(row.assignee),
     projectMilestone: milestoneByName(row.milestone),

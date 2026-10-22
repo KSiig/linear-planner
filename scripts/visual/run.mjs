@@ -7,10 +7,10 @@
 //   - The `npm run visual` script in root package.json
 //   - The .gitignore lines for screenshots/visual/{current,diff}/
 //
-// SII-125 extends this file with the full 40-PNG matrix: 4 viewports x 5
-// surfaces (landing, timeline, tree, tree-global, settings) x 2 themes
-// (dark, light). It also adds the GraphQL route interception over
-// fixture.mjs.
+// SII-125 extends this file with the 4-viewport x 5-surface matrix
+// (landing, timeline, tree, tree-global, settings) x 2 themes. SII-151
+// adds the overview surface (collapsed). GraphQL route interception
+// reads fixture.mjs.
 //
 // SII-126 calls this file from the diff script. SII-127 runs it from the
 // GitHub Actions job.
@@ -56,6 +56,7 @@ const SURFACES = Object.freeze([
   Object.freeze({ view: 'tree',        state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'tree-global', state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'settings',    state: 'panel',     needsAuth: true  }),
+  Object.freeze({ view: 'overview',    state: 'collapsed', needsAuth: true  }),
 ]);
 
 const THEMES = Object.freeze(['dark', 'light']);
@@ -162,6 +163,9 @@ async function buildOnce() {
 function dispatchGraphQL(query, variables) {
   if (query.includes('history(first:')) return historyPage(variables);
   if (query.includes('projects(')) return projectPage();
+  // OverviewTeamIssues also contains issues(first:. Match it first so the
+  // project issues page stays the project(id) response.
+  if (query.includes('OverviewTeamIssues')) return overviewTeamIssuesPage();
   if (query.includes('issues(first:')) return issuesPage();
   if (query.includes('projectMilestones')) return milestonesPage();
   if (query.includes('cycles(')) return cyclesPage();
@@ -191,6 +195,17 @@ function projectPage() {
 function issuesPage() {
   return {
     project: {
+      issues: {
+        nodes: ISSUES,
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    },
+  };
+}
+
+function overviewTeamIssuesPage() {
+  return {
+    team: {
       issues: {
         nodes: ISSUES,
         pageInfo: { hasNextPage: false, endCursor: null },
@@ -375,11 +390,27 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel('Settings').click();
     await page.getByText('People in parallel').waitFor({ state: 'visible', timeout: 15_000 });
+  } else if (surface.view === 'overview') {
+    await waitForLoadingGone(page);
+    await assertNoErrorBanners(page);
+    await page.getByRole('button', { name: 'Overview' }).click();
+    for (const heading of ['Overdue', 'Next', 'Soon', 'No date', 'Later']) {
+      await page.getByRole('heading', { level: 2, name: heading }).waitFor({ state: 'visible', timeout: 15_000 });
+    }
+    const stack = page.getByRole('region', { name: 'Overview' });
+    await stack.waitFor({ state: 'visible', timeout: 15_000 });
+    const documentScrolls = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    const stackScrolls = await stack.evaluate((el) => el.scrollWidth > el.clientWidth);
+    if (documentScrolls || stackScrolls) {
+      fail('overview stack scrolls horizontally');
+    }
   }
 
   const outPath = `${CAPTURE_ROOT}/${surface.view}/${viewportName}/${theme}/${surface.state}.png`;
   await mkdir(dirname(outPath), { recursive: true });
-  await page.screenshot({ path: outPath });
+  await page.screenshot({ path: outPath, fullPage: surface.view === 'overview' });
   log(`wrote ${outPath}`);
 }
 

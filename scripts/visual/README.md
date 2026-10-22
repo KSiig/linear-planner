@@ -54,9 +54,9 @@ not run `npx playwright install`.
 
 ## Surfaces × themes
 
-Five surfaces (landing / timeline / tree / tree-global / settings) across
-two themes (dark / light), at every viewport. SII-125 produces 4 × 5 × 2 =
-40 PNGs:
+Six surfaces (landing / timeline / tree / tree-global / settings / overview)
+across two themes (dark / light), at every viewport. Four viewports, six
+surfaces, and two themes make 48 PNGs:
 
 ```
 screenshots/visual/current/<view>/<viewport>/<theme>/<state>.png
