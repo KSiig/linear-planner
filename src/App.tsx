@@ -14,6 +14,7 @@ import { GlobalStatus } from "./GlobalStatus";
 import { ProjectSelect } from "./ProjectSelect";
 import { centerCard, tabButtonStyle, stepperButtonStyle, buttonStyle } from "./appStyles";
 import { useNarrowLayout } from "./useNarrowLayout";
+import { Overview } from "./views/overview/Overview";
 
 const modeSettingStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" };
 
@@ -590,26 +591,29 @@ export default function App() {
 
         {connected && (
           <div style={{ padding: narrow ? 8 : 16, overflow: "auto" }}>
-            {loading && (
+            {loading && mode !== "overview" && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: 64, color: "var(--text-muted)" }}>
                 <span className="spinner" />
                 Loading issues...
               </div>
             )}
-            {error && !loading && (
+            {error && !loading && mode !== "overview" && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "#ef4444", fontSize: 14 }}>{error}</div>
             )}
-            {!loading && !error && schedule && (
+            {!!selectedProjectId && (mode === "overview" || !loading) && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8, ...(narrow ? { flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : {}) }}>
                 <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", ...(narrow ? { width: "100%" } : {}) }}>
-                  <button aria-label="Timeline" onClick={() => setMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 4px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Timeline" onClick={() => setMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "#fff" : "var(--text-muted)" }}>
                     Timeline
                   </button>
-                  <button aria-label="Tree (per milestone)" onClick={() => setMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 4px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Tree (per milestone)" onClick={() => setMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "#fff" : "var(--text-muted)" }}>
                     {narrow ? "Milestones" : "Tree (per milestone)"}
                   </button>
-                  <button aria-label="Tree (global)" onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 4px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Tree (global)" onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "#fff" : "var(--text-muted)" }}>
                     {narrow ? "All issues" : "Tree (global)"}
+                  </button>
+                  <button aria-label="Overview" onClick={() => setMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "#fff" : "var(--text-muted)" }}>
+                    Overview
                   </button>
                 </div>
                 {narrow ? (
@@ -699,7 +703,10 @@ export default function App() {
                 onDeleteRelation={handleDeleteRelation}
               />
             )}
-            {!loading && !error && !schedule && (
+            {mode === "overview" && selectedProjectId && (
+              <Overview projectId={selectedProjectId} projectName={projects.find((p) => p.id === selectedProjectId)?.name ?? ""} />
+            )}
+            {!loading && !error && !schedule && mode !== "overview" && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "var(--text-muted)" }}>Select a project to display.</div>
             )}
           </div>

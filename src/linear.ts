@@ -246,6 +246,68 @@ export async function fetchProjectCycles(projectId: string): Promise<LinearCycle
     .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 }
 
+export interface OverviewCardIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+  dueDate: string | null;
+  priority: number;
+  priorityLabel: string;
+  updatedAt: string;
+  state: { name: string; type: string };
+  labels: { nodes: Array<{ name: string }> };
+  project: { id: string; name: string } | null;
+}
+
+export async function fetchTeamIssues(teamId: string): Promise<OverviewCardIssue[]> {
+  const allIssues: OverviewCardIssue[] = [];
+  let hasMore = true;
+  let cursor: string | undefined;
+
+  while (hasMore) {
+    const data = await gql<{
+      team: {
+        issues: {
+          nodes: OverviewCardIssue[];
+          pageInfo: { hasNextPage: boolean; endCursor: string };
+        };
+      } | null;
+    }>(
+      `
+      query OverviewTeamIssues($teamId: String!, $after: String) {
+        team(id: $teamId) {
+          issues(first: 50, after: $after) {
+            nodes {
+              id
+              identifier
+              title
+              url
+              dueDate
+              priority
+              priorityLabel
+              updatedAt
+              state { name type }
+              labels { nodes { name } }
+              project { id name }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    `,
+      { teamId, after: cursor },
+    );
+
+    if (!data.team) throw new Error("Team not found");
+    allIssues.push(...data.team.issues.nodes);
+    hasMore = data.team.issues.pageInfo.hasNextPage;
+    cursor = data.team.issues.pageInfo.endCursor;
+  }
+
+  return allIssues;
+}
+
 export async function fetchProjectIssues(projectId: string): Promise<LinearIssue[]> {
   // Use small page size to stay under Linear's query complexity limit (10000)
   // Nested relations + cycle multiplies complexity per issue
