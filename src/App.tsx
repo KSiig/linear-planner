@@ -18,7 +18,11 @@ import { Overview } from "./views/overview/Overview";
 import { localToday } from "./views/overview/calendar";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
 import { fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
-import { loadPlannerQuery, saveActiveViewId, savePlannerQuery } from "./savedViews";
+import type { PlannerQuery } from "./plannerQuery";
+import { loadActiveViewId, loadPlannerQuery, saveActiveViewId, savePlannerQuery, type SavedView } from "./savedViews";
+import { FilterMenu } from "./views/filters/FilterMenu";
+import { FilterChips } from "./views/filters/FilterChips";
+import { ViewMenu } from "./views/filters/ViewMenu";
 
 const modeSettingStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" };
 
@@ -94,6 +98,8 @@ export default function App() {
   const [projectIssues, setProjectIssues] = useState<LinearIssue[]>([]);
   const [overviewIssues, setOverviewIssues] = useState<OverviewIssue[]>([]);
   const [plannerQuery, setPlannerQuery] = useState(loadPlannerQuery);
+  const [activeViewId, setActiveViewId] = useState<string | null>(() => loadActiveViewId());
+  const [activeView, setActiveView] = useState<SavedView | null>(null);
   const [projectCycles, setProjectCycles] = useState<LinearCycle[]>([]);
   const [projectMilestones, setProjectMilestones] = useState<LinearMilestone[]>([]);
   const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
@@ -378,20 +384,22 @@ export default function App() {
     savePlannerQuery(next);
     saveActiveViewId(null);
     setPlannerQuery(next);
+    setActiveViewId(null);
+    setActiveView(null);
   }, [selectedProjectId]);
 
   useEffect(() => {
     savePlannerQuery(plannerQuery);
   }, [plannerQuery]);
 
-  const prevProjectId = useRef("");
+  useEffect(() => {
+    saveActiveViewId(activeViewId);
+  }, [activeViewId]);
+
   useEffect(() => {
     if (!connected) return;
-    if (selectedProjectId !== prevProjectId.current) {
-      prevProjectId.current = selectedProjectId;
-      loadProject(selectedProjectId);
-    }
-  }, [connected, selectedProjectId, loadProject]);
+    loadProject(selectedProjectId);
+  }, [connected, selectedProjectId, plannerQuery, loadProject]);
 
   // Auto-refresh: re-fetch the latest Linear data when the tab regains focus, but skip if
   // we already (auto- or manually) refreshed within the last 5 minutes — focus events fire
@@ -469,6 +477,54 @@ export default function App() {
     // tree redraws from projectIssues without unmounting, keeping the scroll position.
     setProjectIssues((prev) => removeRelation(prev, relationId));
   }, [selectedProjectId, loadProject]);
+
+  const rememberView = useCallback((view: SavedView | null) => {
+    setActiveViewId(view?.id ?? null);
+    setActiveView(view);
+    saveActiveViewId(view?.id ?? null);
+  }, []);
+
+  const editQuery = useCallback((next: PlannerQuery) => {
+    setPlannerQuery(next);
+    savePlannerQuery(next);
+    rememberView(null);
+  }, [rememberView]);
+
+  const selectMode = useCallback((next: Mode) => {
+    setMode(next);
+    rememberView(null);
+  }, [rememberView]);
+
+  const applySavedView = useCallback((view: SavedView) => {
+    setPlannerQuery(view.query);
+    savePlannerQuery(view.query);
+    setMode(view.mode);
+    rememberView(view);
+  }, [rememberView]);
+
+  const filterProjects = useMemo(() => selectableProjects.map((project) => ({ id: project.id, label: project.name })), [selectableProjects]);
+  const filterStatuses = useMemo(() => [...new Set(workflowStates.map((state) => state.type))], [workflowStates]);
+  const filterAssignees = useMemo(() => {
+    const people = new Map<string, string>();
+    for (const issue of projectIssues) {
+      if (issue.assignee) people.set(issue.assignee.id, issue.assignee.name);
+    }
+    return [...people].map(([id, label]) => ({ id, label }));
+  }, [projectIssues]);
+  const filterLabels = useMemo(() => {
+    const names = new Set<string>();
+    for (const issue of projectIssues) {
+      for (const label of issue.labels.nodes) names.add(label.name);
+    }
+    return [...names];
+  }, [projectIssues]);
+  const filterMilestones = useMemo(() => {
+    const milestones = new Map<string, string>();
+    for (const issue of projectIssues) {
+      if (issue.projectMilestone) milestones.set(issue.projectMilestone.id, issue.projectMilestone.name);
+    }
+    return [...milestones].map(([id, label]) => ({ id, label }));
+  }, [projectIssues]);
 
   const narrow = useNarrowLayout();
 
@@ -577,6 +633,25 @@ export default function App() {
               </div>
             )}
             {schedule && <GlobalStatus schedule={schedule} includeCapacityForecast={showCapacityForecast} />}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+              <FilterMenu
+                query={plannerQuery}
+                projects={filterProjects}
+                statuses={filterStatuses}
+                assignees={filterAssignees}
+                labels={filterLabels}
+                milestones={filterMilestones}
+                onChange={editQuery}
+              />
+              <ViewMenu
+                query={plannerQuery}
+                mode={mode}
+                onApply={applySavedView}
+                onCreated={rememberView}
+                onRenamed={(view) => { if (view.id === activeViewId) rememberView(view); }}
+                onDeleted={(id) => { if (id === activeViewId) rememberView(null); }}
+              />
+            </div>
           </>
         )}
         {narrow && settingsOpen && (
@@ -600,6 +675,18 @@ export default function App() {
           </>
         )}
       </header>
+      {connected && (
+        <FilterChips
+          query={plannerQuery}
+          mode={mode}
+          activeView={activeView}
+          projects={filterProjects}
+          assignees={filterAssignees}
+          milestones={filterMilestones}
+          onChange={editQuery}
+          onCreated={rememberView}
+        />
+      )}
 
       <main style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         {restoring && (
@@ -648,16 +735,16 @@ export default function App() {
             {!!selectedProjectId && (mode === "overview" || !loading) && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8, ...(narrow ? { flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : {}) }}>
                 <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", ...(narrow ? { width: "100%" } : {}) }}>
-                  <button aria-label="Timeline" onClick={() => setMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                  <button aria-label="Timeline" onClick={() => selectMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Timeline
                   </button>
-                  <button aria-label="Tree (per milestone)" onClick={() => setMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                  <button aria-label="Tree (per milestone)" onClick={() => selectMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     {narrow ? "Milestones" : "Tree (per milestone)"}
                   </button>
-                  <button aria-label="Tree (global)" onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                  <button aria-label="Tree (global)" onClick={() => selectMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     {narrow ? "All issues" : "Tree (global)"}
                   </button>
-                  <button aria-label="Overview" onClick={() => setMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                  <button aria-label="Overview" onClick={() => selectMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Overview
                   </button>
                 </div>
