@@ -1,0 +1,8 @@
+name = "linear-planner"
+compatibility_date = "2026-10-05"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "VIEWS_DB"
+database_name = "linear-planner-views"
+database_id = "9754333c-cb87-4f9b-bc5e-732ebf2cb8fb"
