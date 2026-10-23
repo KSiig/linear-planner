@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery, type PlannerQuery } from "../../plannerQuery";
@@ -18,7 +18,7 @@ vi.mock("../../auth", () => ({
   getAccessToken: vi.fn(async () => "token"),
 }));
 
-import { createSavedView, loadSavedViews } from "../../savedViews";
+import { createSavedView, loadSavedViews, renameSavedView } from "../../savedViews";
 
 afterEach(() => {
   cleanup();
@@ -88,5 +88,58 @@ describe("ViewMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tree (per milestone)" }));
     expect(screen.getByTestId("active").textContent).toBe("");
     expect(screen.getByRole("button", { name: "Save view" })).toBeTruthy();
+  });
+
+  it("cancels the plus-button name field and saves with the Save view button", async () => {
+    const created: SavedView = { id: "v1", name: "Huskøb", query, mode: "overview" };
+    vi.mocked(loadSavedViews).mockResolvedValue([]);
+    vi.mocked(createSavedView).mockResolvedValue(created);
+    render(<ViewMenu query={query} mode="overview" onApply={() => {}} onCreated={() => {}} onRenamed={() => {}} onDeleted={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Views" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create view" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("View name")).toBeNull();
+    expect(createSavedView).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create view" }));
+    expect(screen.getByRole("button", { name: "Save view" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Huskøb" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    await waitFor(() => expect(createSavedView).toHaveBeenCalledWith(fetch, "token", { name: "Huskøb", query, mode: "overview" }));
+    expect(await screen.findByRole("button", { name: "Huskøb" })).toBeTruthy();
+  });
+
+  it("cancels rename without calling renameSavedView and saves with Save name", async () => {
+    const existing: SavedView = { id: "v1", name: "Huskøb", query, mode: "overview" };
+    const renamed: SavedView = { ...existing, name: "Flytning" };
+    vi.mocked(loadSavedViews).mockResolvedValue([existing]);
+    vi.mocked(renameSavedView).mockResolvedValue(renamed);
+    render(<ViewMenu query={query} mode="overview" onApply={() => {}} onCreated={() => {}} onRenamed={() => {}} onDeleted={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Views" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Huskøb" }));
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("View name")).toBeNull();
+    expect(renameSavedView).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Huskøb" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Huskøb" }));
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "   " } });
+    expect(screen.getByRole("button", { name: "Save name" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Flytning" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    await waitFor(() => expect(renameSavedView).toHaveBeenCalledWith(fetch, "token", "v1", "Flytning"));
+    expect(await screen.findByRole("button", { name: "Flytning" })).toBeTruthy();
+  });
+
+  it("Escape on the plus-button field does not create a view", async () => {
+    vi.mocked(loadSavedViews).mockResolvedValue([]);
+    render(<ViewMenu query={query} mode="overview" onApply={() => {}} onCreated={() => {}} onRenamed={() => {}} onDeleted={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Views" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create view" }));
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Huskøb" } });
+    fireEvent.keyDown(screen.getByLabelText("View name"), { key: "Escape" });
+    expect(screen.queryByLabelText("View name")).toBeNull();
+    expect(createSavedView).not.toHaveBeenCalled();
   });
 });

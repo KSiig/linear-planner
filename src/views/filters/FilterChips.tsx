@@ -89,14 +89,24 @@ export function FilterChips({
             event.preventDefault();
             void create(name);
           }}
+          style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
         >
           <input
             placeholder="View name"
             aria-label="View name"
             value={name}
             onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setNaming(false);
+                setName("");
+              }
+            }}
             style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
           />
+          <button type="button" onClick={() => { setNaming(false); setName(""); }} style={chipStyle}>Cancel</button>
+          <button type="button" aria-label="Save view" disabled={name.trim() === ""} onClick={() => void create(name)} style={chipStyle}>Save</button>
         </form>
       )}
       {error && <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{error}</span>}

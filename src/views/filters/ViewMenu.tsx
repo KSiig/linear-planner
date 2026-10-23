@@ -150,21 +150,31 @@ export function ViewMenu({
                 event.preventDefault();
                 void create(name);
               }}
+              style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 8 }}
             >
               <input
                 placeholder="View name"
                 aria-label="View name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                style={{ width: "100%", boxSizing: "border-box", marginBottom: 8, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setNaming(false);
+                    setName("");
+                  }
+                }}
+                style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
               />
+              <button type="button" onClick={() => { setNaming(false); setName(""); }} style={buttonStyle}>Cancel</button>
+              <button type="button" aria-label="Save view" disabled={name.trim() === ""} onClick={() => void create(name)} style={buttonStyle}>Save</button>
             </form>
           )}
           {views.map((view) => (
             <div key={view.id} style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
               {renameId === view.id ? (
                 <form
-                  style={{ display: "flex", flex: 1 }}
+                  style={{ display: "flex", flex: 1, gap: 4, alignItems: "center" }}
                   onSubmit={(event) => {
                     event.preventDefault();
                     void rename(view.id, name);
@@ -174,8 +184,17 @@ export function ViewMenu({
                     aria-label="View name"
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setRenameId(null);
+                        setName("");
+                      }
+                    }}
+                    style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
                   />
+                  <button type="button" onClick={() => { setRenameId(null); setName(""); }} style={buttonStyle}>Cancel</button>
+                  <button type="button" aria-label="Save name" disabled={name.trim() === ""} onClick={() => void rename(view.id, name)} style={buttonStyle}>Save</button>
                 </form>
               ) : (
                 <button type="button" onClick={() => onApply(view)} style={{ ...buttonStyle, flex: 1, minWidth: 0, textAlign: "left", background: "transparent" }}>
