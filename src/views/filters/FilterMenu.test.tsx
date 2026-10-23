@@ -29,6 +29,66 @@ describe("FilterMenu", () => {
   });
 });
 
+describe("filter rows", () => {
+  function openFilters(projects: Array<{ id: string; label: string }> = [], query = emptyPlannerQuery()) {
+    render(
+      <FilterMenu
+        query={query}
+        projects={projects}
+        statuses={[]}
+        assignees={[]}
+        labels={[]}
+        milestones={[]}
+        onChange={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  }
+
+  it("shows a Filters heading inside the panel, not only the trigger", () => {
+    openFilters();
+    const heading = screen.getByRole("heading", { name: "Filters" });
+    expect(heading.textContent).toBe("Filters");
+    expect(screen.getByRole("button", { name: "Filters" }).contains(heading)).toBe(false);
+  });
+
+  it("shows an icon and the Project label on the closed row", () => {
+    openFilters();
+    const project = screen.getByRole("button", { name: "Project" });
+    expect(project.querySelector("svg")).toBeTruthy();
+    expect(project.textContent).toContain("Project");
+    const svgs = project.querySelectorAll("svg");
+    expect(svgs).toHaveLength(2);
+    expect(svgs[1]?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("shows the selected project label", () => {
+    openFilters([{ id: "p1", label: "Ad-hoc" }], { ...emptyPlannerQuery(), projectIds: ["p1"] });
+    expect(screen.getByRole("button", { name: "Project" }).textContent).toContain("Ad-hoc");
+  });
+
+  it("shows a count when more than one project is selected", () => {
+    openFilters(
+      [
+        { id: "p1", label: "Ad-hoc" },
+        { id: "p2", label: "Other" },
+      ],
+      { ...emptyPlannerQuery(), projectIds: ["p1", "p2"] },
+    );
+    expect(screen.getByRole("button", { name: "Project" }).textContent).toContain("2 selected");
+  });
+
+  it("opens project options and shows a back chevron", () => {
+    openFilters([{ id: "p1", label: "Ad-hoc" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    expect(screen.getByRole("button", { name: "Ad-hoc" })).toBeTruthy();
+    const back = screen.getByRole("button", { name: "Project" });
+    expect(back.textContent).toContain("Project");
+    const path = back.querySelector("svg path");
+    expect(path?.getAttribute("d")).toBe("m15 18-6-6 6-6");
+  });
+});
+
 describe("header controls at 390px", () => {
   it("keeps Filters and Views on screen without a sideways popover", () => {
     const view = render(
