@@ -19,7 +19,7 @@ import { localToday } from "./views/overview/calendar";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
 import { fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
 import type { PlannerQuery } from "./plannerQuery";
-import { loadActiveViewId, loadPlannerQuery, saveActiveViewId, savePlannerQuery, type SavedView } from "./savedViews";
+import { loadActiveViewId, loadPlannerQuery, readSavedViewMode, saveActiveViewId, savePlannerQuery, type SavedView } from "./savedViews";
 import { FilterMenu } from "./views/filters/FilterMenu";
 import { FilterChips } from "./views/filters/FilterChips";
 import { ViewMenu } from "./views/filters/ViewMenu";
@@ -498,7 +498,7 @@ export default function App() {
   const applySavedView = useCallback((view: SavedView) => {
     setPlannerQuery(view.query);
     savePlannerQuery(view.query);
-    setMode(view.mode);
+    setMode(readSavedViewMode(view.mode) ?? "workers");
     rememberView(view);
   }, [rememberView]);
 
@@ -735,17 +735,14 @@ export default function App() {
             {!!selectedProjectId && (mode === "overview" || !loading) && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8, ...(narrow ? { flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : {}) }}>
                 <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", ...(narrow ? { width: "100%" } : {}) }}>
+                  <button aria-label="Overview" onClick={() => selectMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                    Overview
+                  </button>
                   <button aria-label="Timeline" onClick={() => selectMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Timeline
                   </button>
-                  <button aria-label="Tree (per milestone)" onClick={() => selectMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "var(--accent-text)" : "var(--text-muted)" }}>
-                    {narrow ? "Milestones" : "Tree (per milestone)"}
-                  </button>
-                  <button aria-label="Tree (global)" onClick={() => selectMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "var(--accent-text)" : "var(--text-muted)" }}>
-                    {narrow ? "All issues" : "Tree (global)"}
-                  </button>
-                  <button aria-label="Overview" onClick={() => selectMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
-                    Overview
+                  <button aria-label="Tree" onClick={() => selectMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                    Tree
                   </button>
                 </div>
                 {narrow ? (
@@ -763,9 +760,6 @@ export default function App() {
                         <FilterChip pressed={drawCrossMilestoneDeps} onClick={() => setDrawCrossMilestoneDeps((v) => !v)}>Cross-milestone</FilterChip>
                         <FilterChip pressed={includeDoneIssuesTree} onClick={() => setIncludeDoneIssuesTree((v) => !v)}>Done issues</FilterChip>
                       </>
-                    )}
-                    {mode === "treeGlobal" && (
-                      <FilterChip pressed={includeDoneIssuesTreeGlobal} onClick={() => setIncludeDoneIssuesTreeGlobal((v) => !v)}>Done issues</FilterChip>
                     )}
                   </div>
                 ) : (
@@ -802,12 +796,6 @@ export default function App() {
                       </label>
                     </>
                   )}
-                  {mode === "treeGlobal" && (
-                    <label style={modeSettingStyle}>
-                      <input type="checkbox" checked={includeDoneIssuesTreeGlobal} onChange={(e) => setIncludeDoneIssuesTreeGlobal(e.target.checked)} />
-                      Include done issues
-                    </label>
-                  )}
                 </div>
                 )}
               </div>
@@ -820,16 +808,6 @@ export default function App() {
                 schedule={schedule}
                 variant={drawCrossMilestoneDeps ? "split" : "individual"}
                 includeDone={includeDoneIssuesTree}
-                writeEnabled={writeEnabled}
-                onCreateBlockingRelation={handleCreateBlockingRelation}
-                onDeleteRelation={handleDeleteRelation}
-              />
-            )}
-            {!loading && !error && schedule && mode === "treeGlobal" && (
-              <DependencyTree
-                schedule={schedule}
-                variant="global"
-                includeDone={includeDoneIssuesTreeGlobal}
                 writeEnabled={writeEnabled}
                 onCreateBlockingRelation={handleCreateBlockingRelation}
                 onDeleteRelation={handleDeleteRelation}
