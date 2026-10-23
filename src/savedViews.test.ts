@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
-import { createSavedView, loadActiveViewId, loadPlannerQuery, saveActiveViewId, savePlannerQuery } from "./savedViews";
+import { createSavedView, loadActiveViewId, loadPlannerQuery, readSavedViewMode, saveActiveViewId, savePlannerQuery } from "./savedViews";
 
 beforeEach(() => {
   const store = new Map<string, string>();
@@ -28,6 +28,12 @@ describe("planner query draft", () => {
     expect(loadActiveViewId()).toBe("view-1");
     saveActiveViewId(null);
     expect(loadActiveViewId()).toBeNull();
+  });
+});
+
+describe("readSavedViewMode", () => {
+  it("maps a saved view mode treeGlobal to tree", () => {
+    expect(readSavedViewMode("treeGlobal")).toBe("tree");
   });
 });
 

@@ -8,7 +8,7 @@
 //   - The .gitignore lines for screenshots/visual/{current,diff}/
 //
 // SII-125 extends this file with the 4-viewport x 5-surface matrix
-// (landing, timeline, tree, tree-global, settings) x 2 themes. SII-151
+// (landing, timeline, tree, settings) x 2 themes. SII-151
 // adds the overview surface (collapsed). GraphQL route interception
 // reads fixture.mjs.
 //
@@ -58,7 +58,6 @@ const SURFACES = Object.freeze([
   Object.freeze({ view: 'timeline',    state: 'filters',   needsAuth: true  }),
   Object.freeze({ view: 'timeline',    state: 'views',     needsAuth: true  }),
   Object.freeze({ view: 'tree',        state: 'populated', needsAuth: true  }),
-  Object.freeze({ view: 'tree-global', state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'settings',    state: 'panel',     needsAuth: true  }),
   Object.freeze({ view: 'overview',    state: 'collapsed', needsAuth: true  }),
 ]);
@@ -416,13 +415,7 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByRole('button', { name: 'Tree (per milestone)' }).click();
-    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
-  } else if (surface.view === 'tree-global') {
-    await waitForLoadingGone(page);
-    await assertNoErrorBanners(page);
-    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByRole('button', { name: 'Tree (global)' }).click();
+    await page.getByRole('button', { name: 'Tree' }).click();
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'settings') {
     await waitForLoadingGone(page);

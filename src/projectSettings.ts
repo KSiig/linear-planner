@@ -2,7 +2,7 @@
 
 const GLOBAL_STORAGE_KEY = "linear-planner";
 
-export type Mode = "workers" | "tree" | "treeGlobal" | "overview";
+export type Mode = "workers" | "tree" | "overview";
 
 export interface ProjectSettings {
   numWorkers: number;
@@ -46,7 +46,7 @@ export function loadProjectSettings(projectId: string): ProjectSettings {
     let drawCrossMilestoneDeps = false;
     if (data.mode === "tree") { mode = "tree"; drawCrossMilestoneDeps = data.drawCrossMilestoneDeps ?? true; }
     else if (data.mode === "treeIndividual") { mode = "tree"; drawCrossMilestoneDeps = false; }
-    else if (data.mode === "treeGlobal") { mode = "treeGlobal"; }
+    else if (data.mode === "treeGlobal") { mode = "tree"; }
     else if (data.mode === "overview") { mode = "overview"; }
     // Migration: a single `includeDoneIssues` value (older shape) is copied to both per-view flags.
     const legacyIncludeDone = data.includeDoneIssues;

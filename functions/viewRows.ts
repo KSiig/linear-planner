@@ -1,5 +1,5 @@
 import { isPlannerQuery, type PlannerQuery } from "../src/plannerQuery";
-import { isSavedViewMode, type SavedView, type SavedViewMode } from "../src/savedViews";
+import { isSavedViewMode, readSavedViewMode, type SavedView, type SavedViewMode } from "../src/savedViews";
 
 export interface ViewRow {
   id: string;
@@ -34,8 +34,9 @@ export function rowToView(row: ViewRow): SavedView | null {
   } catch {
     return null;
   }
-  if (!isPlannerQuery(query) || !isSavedViewMode(row.mode)) return null;
-  return { id: row.id, name: row.name, query, mode: row.mode };
+  const mode = readSavedViewMode(row.mode);
+  if (!isPlannerQuery(query) || !mode) return null;
+  return { id: row.id, name: row.name, query, mode };
 }
 
 export function rejectName(name: unknown): Response | null {

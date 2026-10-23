@@ -18,4 +18,9 @@ describe("loadProjectSettings", () => {
     localStorage.setItem("linear-planner:p1", JSON.stringify({ mode: "overview" }));
     expect(loadProjectSettings("p1").mode).toBe("overview");
   });
+
+  it("maps a stored treeGlobal mode to tree", () => {
+    localStorage.setItem("linear-planner:p1", JSON.stringify({ mode: "treeGlobal" }));
+    expect(loadProjectSettings("p1").mode).toBe("tree");
+  });
 });
