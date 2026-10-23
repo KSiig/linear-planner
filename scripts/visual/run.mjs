@@ -444,6 +444,7 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
   } else if (surface.view === 'overview') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
+    await page.getByRole('button', { name: 'Overview', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await assertHeaderChrome(page);
     await page.getByRole('button', { name: 'Overview' }).click();
     for (const heading of ['Overdue', 'Next', 'Soon', 'No date', 'Later']) {
