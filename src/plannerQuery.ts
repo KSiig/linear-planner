@@ -45,10 +45,9 @@ export function isPlannerQuery(value: unknown): value is PlannerQuery {
   );
 }
 
-export function scopeProjectIds(query: PlannerQuery, selectedProjectId: string): string[] {
+export function scopeProjectIds(query: PlannerQuery, selectableProjectIds: readonly string[]): string[] {
   if (query.projectIds.length > 0) return query.projectIds;
-  if (selectedProjectId !== "") return [selectedProjectId];
-  return [];
+  return [...selectableProjectIds];
 }
 
 export interface QueryIssue {
@@ -82,11 +81,11 @@ function matchesDue(dueDate: string | null | undefined, window: DueWindow, today
 export function matchesQuery(
   issue: QueryIssue,
   query: PlannerQuery,
-  selectedProjectId: string,
   today: string,
 ): boolean {
   const projectId = issue.project?.id ?? "";
-  if (projectId === "" || !scopeProjectIds(query, selectedProjectId).includes(projectId)) return false;
+  if (projectId === "") return false;
+  if (query.projectIds.length > 0 && !query.projectIds.includes(projectId)) return false;
 
   if (query.stateTypes.length > 0 && !query.stateTypes.includes(issue.state?.type ?? "")) return false;
 

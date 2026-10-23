@@ -29,10 +29,9 @@ export async function fetchScopedIssues(
 export function filterMatchingIssues(
   issues: readonly StampedIssue[],
   query: PlannerQuery,
-  selectedProjectId: string,
   today: string,
 ): StampedIssue[] {
-  return issues.filter((issue) => matchesQuery(issue, query, selectedProjectId, today));
+  return issues.filter((issue) => matchesQuery(issue, query, today));
 }
 
 export function toOverviewIssue(issue: StampedIssue): OverviewIssue {
@@ -53,12 +52,27 @@ export function toOverviewIssue(issue: StampedIssue): OverviewIssue {
 export function overviewIssuesForQuery(
   issues: readonly StampedIssue[],
   query: PlannerQuery,
-  selectedProjectId: string,
   today: string,
 ): OverviewIssue[] {
-  return filterMatchingIssues(issues, query, selectedProjectId, today).map(toOverviewIssue);
+  return filterMatchingIssues(issues, query, today).map(toOverviewIssue);
 }
 
-export function projectIdsToLoad(query: PlannerQuery, selectedProjectId: string): string[] {
-  return scopeProjectIds(query, selectedProjectId);
+export function projectIdsToLoad(query: PlannerQuery, selectableProjectIds: readonly string[]): string[] {
+  return scopeProjectIds(query, selectableProjectIds);
+}
+
+export async function fetchScopedById<T extends { id: string }>(
+  projectIds: readonly string[],
+  fetchRows: (projectId: string) => Promise<T[]>,
+): Promise<T[]> {
+  const seen = new Set<string>();
+  const rows: T[] = [];
+  for (const id of projectIds) {
+    for (const row of await fetchRows(id)) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      rows.push(row);
+    }
+  }
+  return rows;
 }

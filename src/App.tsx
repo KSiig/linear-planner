@@ -11,13 +11,12 @@ import { loadProjectSettings, saveProjectSettings, LEGACY_STORAGE_KEY, type Mode
 import { computeEffectiveEndStatus, sortStates } from "./workflowState";
 import { StatusSelect } from "./StatusSelect";
 import { GlobalStatus } from "./GlobalStatus";
-import { ProjectSelect } from "./ProjectSelect";
 import { centerCard, tabButtonStyle, stepperButtonStyle, buttonStyle } from "./appStyles";
 import { useNarrowLayout } from "./useNarrowLayout";
 import { Overview } from "./views/overview/Overview";
 import { localToday } from "./views/overview/calendar";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
-import { fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
+import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
 import type { PlannerQuery } from "./plannerQuery";
 import { loadActiveViewId, loadPlannerQuery, readSavedViewMode, saveActiveViewId, savePlannerQuery, type SavedView } from "./savedViews";
 import { FilterMenu } from "./views/filters/FilterMenu";
@@ -72,7 +71,6 @@ const AUTO_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [projects, setProjects] = useState<LinearProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [numWorkers, setNumWorkers] = useState(2);
   const [mode, setMode] = useState<Mode>("workers");
   const [showWeekends, setShowWeekends] = useState(false);
@@ -205,50 +203,7 @@ export default function App() {
 
         const urlProjectId = getProjectIdFromUrl();
         const match = urlProjectId ? projs.find((p) => p.id === urlProjectId) : null;
-        const pid = match ? urlProjectId! : "";
-
-        if (pid) {
-          const ps = loadProjectSettings(pid);
-          setNumWorkers(ps.numWorkers);
-          setMode(ps.mode);
-          setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
-          setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
-          setIncludeDoneIssuesTreeGlobal(ps.includeDoneIssuesTreeGlobal);
-          setShowWeekends(ps.showWeekends);
-          setShowHolidays(ps.showHolidays);
-          setShowCooldown(ps.showCooldown);
-          setShowCapacityForecast(ps.showCapacityForecast);
-          setStartStatusName(ps.startStatusName);
-          setEndStatusName(ps.endStatusName);
-        }
-
-        setSelectedProjectId(pid);
-        setConnected(true);
-      } catch {
-        clearTokens();
-      } finally {
-        setRestoring(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (connected && selectedProjectId) {
-      saveProjectSettings(selectedProjectId, { numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName });
-    }
-  }, [connected, selectedProjectId, numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName]);
-
-  useEffect(() => {
-    if (connected && selectedProjectId) {
-      navigateToProject(selectedProjectId);
-    }
-  }, [connected, selectedProjectId]);
-
-  useEffect(() => {
-    const handler = () => {
-      const pid = getProjectIdFromUrl();
-      if (pid && pid !== selectedProjectId && projects.some((p) => p.id === pid)) {
-        const ps = loadProjectSettings(pid);
+        const ps = loadProjectSettings(match ? urlProjectId : null);
         setNumWorkers(ps.numWorkers);
         setMode(ps.mode);
         setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
@@ -260,33 +215,50 @@ export default function App() {
         setShowCapacityForecast(ps.showCapacityForecast);
         setStartStatusName(ps.startStatusName);
         setEndStatusName(ps.endStatusName);
-        setSelectedProjectId(pid);
+
+        if (match && urlProjectId) {
+          const stored = loadPlannerQuery();
+          const next = { ...stored, projectIds: [urlProjectId] };
+          savePlannerQuery(next);
+          setPlannerQuery(next);
+          navigateToProject(null);
+        }
+
+        setConnected(true);
+      } catch {
+        clearTokens();
+      } finally {
+        setRestoring(false);
       }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!connected) return;
+    saveProjectSettings({ numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName });
+  }, [connected, numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName]);
+
+  useEffect(() => {
+    const handler = () => {
+      const pid = getProjectIdFromUrl();
+      if (!pid || !projects.some((p) => p.id === pid)) return;
+      setPlannerQuery((current) => {
+        const next = { ...current, projectIds: [pid] };
+        savePlannerQuery(next);
+        return next;
+      });
+      navigateToProject(null);
     };
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
-  }, [selectedProjectId, projects]);
+  }, [projects]);
 
-  const handleProjectChange = useCallback((projectId: string) => {
-    const ps = loadProjectSettings(projectId);
-    setNumWorkers(ps.numWorkers);
-    setMode(ps.mode);
-    setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
-    setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
-    setIncludeDoneIssuesTreeGlobal(ps.includeDoneIssuesTreeGlobal);
-    setShowWeekends(ps.showWeekends);
-    setShowHolidays(ps.showHolidays);
-    setShowCooldown(ps.showCooldown);
-    setStartStatusName(ps.startStatusName);
-    setEndStatusName(ps.endStatusName);
-    setSelectedProjectId(projectId);
-  }, []);
-
-  const loadProject = useCallback(async (projectId: string) => {
+  const loadProject = useCallback(async () => {
     const gen = ++loadGen.current;
     const query = loadPlannerQuery();
-    const ids = projectIdsToLoad(query, projectId);
-    if (!projectId && ids.length === 0) {
+    const selectableIds = projectsRef.current.filter((project) => project.hasIssues).map((project) => project.id);
+    const ids = projectIdsToLoad(query, selectableIds);
+    if (ids.length === 0) {
       setProjectIssues([]);
       setOverviewIssues([]);
       setProjectCycles([]);
@@ -299,18 +271,14 @@ export default function App() {
     setOverviewIssues([]);
     lastRefreshAtRef.current = Date.now();
     try {
-      const issuePromise = fetchScopedIssues(ids, projectsRef.current);
-      const metaPromise = projectId
-        ? Promise.all([
-            fetchProjectCycles(projectId),
-            fetchProjectMilestones(projectId),
-            fetchProjectWorkflowStates(projectId),
-          ])
-        : Promise.resolve([[] as LinearCycle[], [] as LinearMilestone[], [] as LinearWorkflowState[]] as const);
-      const [stamped, meta] = await Promise.all([issuePromise, metaPromise]);
+      const [stamped, cycles, milestones, states] = await Promise.all([
+        fetchScopedIssues(ids, projectsRef.current),
+        fetchScopedById(ids, fetchProjectCycles),
+        fetchScopedById(ids, fetchProjectMilestones),
+        fetchScopedById(ids, fetchProjectWorkflowStates),
+      ]);
       if (gen !== loadGen.current) return;
-      const [cycles, milestones, states] = meta;
-      const matched = filterMatchingIssues(stamped, query, projectId, localToday(new Date()));
+      const matched = filterMatchingIssues(stamped, query, localToday(new Date()));
       setOverviewIssues(matched.map(toOverviewIssue));
       setWorkflowStates(states);
       if (stamped.length === 0) {
@@ -318,7 +286,7 @@ export default function App() {
         setOverviewIssues([]);
         setProjectCycles([]);
         setProjectMilestones([]);
-        if (projectId) setError("No issues found in this project.");
+        setError("No issues found in this project.");
         setLoading(false);
         return;
       }
@@ -378,17 +346,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedProjectId) return;
-    const loaded = loadPlannerQuery();
-    const next = { ...loaded, projectIds: [] as string[] };
-    savePlannerQuery(next);
-    saveActiveViewId(null);
-    setPlannerQuery(next);
-    setActiveViewId(null);
-    setActiveView(null);
-  }, [selectedProjectId]);
-
-  useEffect(() => {
     savePlannerQuery(plannerQuery);
   }, [plannerQuery]);
 
@@ -398,8 +355,8 @@ export default function App() {
 
   useEffect(() => {
     if (!connected) return;
-    loadProject(selectedProjectId);
-  }, [connected, selectedProjectId, plannerQuery, loadProject]);
+    loadProject();
+  }, [connected, plannerQuery, loadProject]);
 
   // Auto-refresh: re-fetch the latest Linear data when the tab regains focus, but skip if
   // we already (auto- or manually) refreshed within the last 5 minutes — focus events fire
@@ -407,11 +364,11 @@ export default function App() {
   const loadingRef = useRef(loading);
   loadingRef.current = loading;
   useEffect(() => {
-    if (!connected || !autoRefresh || !selectedProjectId) return;
+    if (!connected || !autoRefresh) return;
     const refresh = () => {
       if (document.visibilityState !== "visible" || loadingRef.current) return;
       if (Date.now() - lastRefreshAtRef.current < AUTO_REFRESH_THROTTLE_MS) return;
-      loadProject(selectedProjectId);
+      loadProject();
     };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
@@ -419,7 +376,7 @@ export default function App() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [connected, autoRefresh, selectedProjectId, loadProject]);
+  }, [connected, autoRefresh, loadProject]);
 
   const handleToggleAutoRefresh = useCallback((next: boolean) => {
     setAutoRefreshEnabled(next);
@@ -434,7 +391,6 @@ export default function App() {
     setProjectMilestones([]);
     setWorkflowStates([]);
     setProjects([]);
-    setSelectedProjectId("");
     navigateToProject(null);
   }, []);
 
@@ -456,27 +412,27 @@ export default function App() {
       relationId = await createBlockingRelation(blockerId, blockedId);
     } catch (err) {
       // The write failed — fall back to a full refetch so the tree reflects the true state.
-      if (selectedProjectId) await loadProject(selectedProjectId);
+      await loadProject();
       throw err;
     }
     // Optimistic update: patch the local issue data in place instead of refetching everything.
     // The schedule + tree are derived from projectIssues via useMemo, so the tree redraws without
     // unmounting — the container keeps its scroll position.
     setProjectIssues((prev) => addBlocksRelation(prev, blockerId, blockedId, relationId));
-  }, [selectedProjectId, loadProject]);
+  }, [loadProject]);
 
   const handleDeleteRelation = useCallback(async (relationId: string) => {
     try {
       await deleteIssueRelation(relationId);
     } catch (err) {
       // The delete failed — fall back to a full refetch so the tree reflects the true state.
-      if (selectedProjectId) await loadProject(selectedProjectId);
+      await loadProject();
       throw err;
     }
     // Optimistic update: drop the relation node from local issue data instead of refetching. The
     // tree redraws from projectIssues without unmounting, keeping the scroll position.
     setProjectIssues((prev) => removeRelation(prev, relationId));
-  }, [selectedProjectId, loadProject]);
+  }, [loadProject]);
 
   const rememberView = useCallback((view: SavedView | null) => {
     setActiveViewId(view?.id ?? null);
@@ -610,26 +566,9 @@ export default function App() {
 
         {connected && (
           <>
-            {narrow ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <ProjectSelect
-                  projects={selectableProjects}
-                  value={selectedProjectId}
-                  placeholder="Select a project…"
-                  onChange={handleProjectChange}
-                  fill
-                />
+            {narrow && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
                 <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
-              </div>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <ProjectSelect
-                  projects={selectableProjects}
-                  value={selectedProjectId}
-                  placeholder="Select a project…"
-                  onChange={handleProjectChange}
-                  maxWidth={360}
-                />
               </div>
             )}
             {schedule && <GlobalStatus schedule={schedule} includeCapacityForecast={showCapacityForecast} />}
@@ -732,7 +671,7 @@ export default function App() {
             {error && !loading && mode !== "overview" && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "#ef4444", fontSize: 14 }}>{error}</div>
             )}
-            {!!selectedProjectId && (mode === "overview" || !loading) && (
+            {(mode === "overview" || !loading) && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8, ...(narrow ? { flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : {}) }}>
                 <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", ...(narrow ? { width: "100%" } : {}) }}>
                   <button aria-label="Overview" onClick={() => selectMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
@@ -813,11 +752,8 @@ export default function App() {
                 onDeleteRelation={handleDeleteRelation}
               />
             )}
-            {mode === "overview" && selectedProjectId && (
+            {mode === "overview" && (
               <Overview issues={overviewIssues} />
-            )}
-            {!loading && !error && !schedule && mode !== "overview" && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "var(--text-muted)" }}>Select a project to display.</div>
             )}
           </div>
         )}

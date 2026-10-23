@@ -1,6 +1,7 @@
 // Per-project user preferences persisted to localStorage.
 
 const GLOBAL_STORAGE_KEY = "linear-planner";
+export const DISPLAY_STORAGE_KEY = `${GLOBAL_STORAGE_KEY}:display`;
 
 export type Mode = "workers" | "tree" | "overview";
 
@@ -36,17 +37,18 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   endStatusName: "",
 };
 
-export function loadProjectSettings(projectId: string): ProjectSettings {
+export function loadProjectSettings(urlProjectId?: string | null): ProjectSettings {
   try {
-    const raw = localStorage.getItem(`${GLOBAL_STORAGE_KEY}:${projectId}`);
+    const display = localStorage.getItem(DISPLAY_STORAGE_KEY);
+    const raw = display ?? (urlProjectId ? localStorage.getItem(`${GLOBAL_STORAGE_KEY}:${urlProjectId}`) : null);
     if (!raw) return DEFAULT_PROJECT_SETTINGS;
     const data = JSON.parse(raw);
-    // Migration: old "treeIndividual" → "tree" with cross-milestone deps off
+    // Migration: old "treeIndividual" → "tree" with cross-milestone deps off.
+    // A stored treeGlobal mode loads as tree. Do not write treeGlobal.
     let mode: Mode = "workers";
     let drawCrossMilestoneDeps = false;
-    if (data.mode === "tree") { mode = "tree"; drawCrossMilestoneDeps = data.drawCrossMilestoneDeps ?? true; }
+    if (data.mode === "tree" || data.mode === "treeGlobal") { mode = "tree"; drawCrossMilestoneDeps = data.mode === "tree" ? (data.drawCrossMilestoneDeps ?? true) : false; }
     else if (data.mode === "treeIndividual") { mode = "tree"; drawCrossMilestoneDeps = false; }
-    else if (data.mode === "treeGlobal") { mode = "tree"; }
     else if (data.mode === "overview") { mode = "overview"; }
     // Migration: a single `includeDoneIssues` value (older shape) is copied to both per-view flags.
     const legacyIncludeDone = data.includeDoneIssues;
@@ -68,8 +70,9 @@ export function loadProjectSettings(projectId: string): ProjectSettings {
   }
 }
 
-export function saveProjectSettings(projectId: string, s: ProjectSettings) {
-  localStorage.setItem(`${GLOBAL_STORAGE_KEY}:${projectId}`, JSON.stringify(s));
+export function saveProjectSettings(s: ProjectSettings) {
+  const mode = (s.mode as string) === "treeGlobal" ? "tree" : s.mode;
+  localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({ ...s, mode }));
 }
 
 /** Legacy key — used pre-OAuth. Removed at startup to avoid stale state. */
