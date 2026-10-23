@@ -31,6 +31,7 @@ export function Overview({ issues }: { issues: OverviewIssue[] }) {
       style={{
         display: "flex",
         flexDirection: "column",
+        gap: "12px",
         maxWidth: 720,
         width: "100%",
         marginInline: "auto",
