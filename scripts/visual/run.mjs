@@ -7,10 +7,10 @@
 //   - The `npm run visual` script in root package.json
 //   - The .gitignore lines for screenshots/visual/{current,diff}/
 //
-// SII-125 extends this file with the 4-viewport x 5-surface matrix
-// (landing, timeline, tree, settings) x 2 themes. SII-151
-// adds the overview surface (collapsed). GraphQL route interception
-// reads fixture.mjs.
+// SII-125 extends this file with the 4-viewport matrix. SII-151 adds
+// the overview surface (collapsed). SII-166 drops tree-global. Surfaces:
+// landing, timeline, tree, settings, overview, across two themes.
+// GraphQL route interception reads fixture.mjs.
 //
 // SII-126 calls this file from the diff script. SII-127 runs it from the
 // GitHub Actions job.
@@ -360,6 +360,21 @@ async function assertNoErrorBanners(page) {
   }
 }
 
+async function assertHeaderChrome(page) {
+  if (await page.getByText('Select a project…').count() !== 0) {
+    fail('header still has a project select');
+  }
+  if (await page.getByRole('button', { name: 'Tree (global)' }).count() !== 0) {
+    fail('Tree (global) tab is still present');
+  }
+  const labels = await page.locator('button[aria-label="Overview"]').locator('xpath=..').locator('button').evaluateAll(
+    (els) => els.map((el) => el.getAttribute('aria-label')),
+  );
+  if (labels[0] !== 'Overview') {
+    fail(`first tab is ${labels[0] ?? 'missing'}, expected Overview`);
+  }
+}
+
 async function captureSurface({ page, port, surface, theme, viewportName }) {
   const url = surface.needsAuth
     ? `http://127.0.0.1:${port}${DATA_VIEW_PATH}`
@@ -396,11 +411,12 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
       await forecastChip.click();
     }
     await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
+    await assertHeaderChrome(page);
     if (surface.state === 'filters') {
-      await page.getByRole('button', { name: 'Filters' }).click();
+      await page.getByRole('button', { name: 'Filters', exact: true }).click();
       await page.getByPlaceholder('Search filters...').waitFor({ state: 'visible', timeout: 15_000 });
-      await page.getByText('Project', { exact: true }).click();
-      await page.getByText('Ad-hoc').waitFor({ state: 'visible', timeout: 15_000 });
+      await page.getByRole('heading', { name: 'Filters' }).waitFor({ state: 'visible', timeout: 15_000 });
+      await page.getByText('Project', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     } else if (surface.state === 'views') {
       await page.getByRole('button', { name: 'Views' }).click();
       await page.getByText('Huskøb').waitFor({ state: 'visible', timeout: 15_000 });
@@ -415,17 +431,21 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await assertHeaderChrome(page);
+    await page.getByRole('button', { name: 'Tree', exact: true }).click();
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'settings') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await assertHeaderChrome(page);
     await page.getByLabel('Settings').click();
     await page.getByText('People in parallel').waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'overview') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
+    await page.getByRole('button', { name: 'Overview', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+    await assertHeaderChrome(page);
     await page.getByRole('button', { name: 'Overview' }).click();
     for (const heading of ['Overdue', 'Next', 'Soon', 'No date', 'Later']) {
       await page.getByRole('heading', { level: 2, name: heading }).waitFor({ state: 'visible', timeout: 15_000 });

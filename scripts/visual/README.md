@@ -54,7 +54,7 @@ not run `npx playwright install`.
 
 ## Surfaces × themes
 
-Six surfaces (landing / timeline / tree / tree-global / settings / overview)
+Five surfaces (landing / timeline / tree / settings / overview)
 across two themes (dark / light), at every viewport.
 
 States:
@@ -62,12 +62,11 @@ States:
 - landing: `sign-in`
 - timeline: `populated`, `filters`, `views`
 - tree: `populated`
-- tree-global: `populated`
 - settings: `panel`
 - overview: `collapsed`
 
-Four viewports, six surfaces, two themes, and the two extra timeline states
-make 64 PNGs:
+Four viewports, five surfaces, two themes, and the two extra timeline states
+make 56 PNGs:
 
 ```
 screenshots/visual/current/<view>/<viewport>/<theme>/<state>.png
