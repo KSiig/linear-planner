@@ -26,17 +26,18 @@ function issue(id: string, projectId: string, projectName: string, dueDate: stri
 }
 
 describe("filterMatchingIssues", () => {
-  it("keeps only the header project when projectIds is empty, even if another issue is in the Soon window", () => {
-    const today = "2026-01-01";
-    const soonDue = "2026-01-20";
-    const header = issue("header", "project-1", "Header", "2026-03-01");
-    const otherSoon = issue("other", "project-2", "Other", soonDue);
-    const query = emptyPlannerQuery();
+  const today = "2026-01-01";
+  const fromA = issue("a", "A", "A", "2026-03-01");
+  const fromB = issue("b", "B", "B", "2026-01-20");
 
-    const kept = filterMatchingIssues([otherSoon, header], query, "project-1", today);
+  it("keeps issues from A and from B when projectIds is empty", () => {
+    const kept = filterMatchingIssues([fromA, fromB], emptyPlannerQuery(), today);
+    expect(kept.map((row) => row.id)).toEqual(["a", "b"]);
+  });
 
-    expect(query.projectIds).toEqual([]);
-    expect(kept.map((row) => row.id)).toEqual(["header"]);
-    expect(otherSoon.dueDate).toBe(soonDue);
+  it("drops issues from B when projectIds is only A", () => {
+    const query = { ...emptyPlannerQuery(), projectIds: ["A"] };
+    const kept = filterMatchingIssues([fromA, fromB], query, today);
+    expect(kept.map((row) => row.id)).toEqual(["a"]);
   });
 });
