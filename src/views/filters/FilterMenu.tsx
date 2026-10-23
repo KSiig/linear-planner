@@ -48,6 +48,8 @@ const buttonStyle = {
 
 const rowStyle = {
   display: "flex",
+  alignItems: "center",
+  gap: 8,
   width: "100%",
   textAlign: "left" as const,
   padding: "8px 10px",
@@ -141,16 +143,25 @@ export function FilterMenu({
               color: "var(--text)",
             }}
           />
+          <h2 style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", padding: "4px 10px", margin: 0 }}>Filters</h2>
           {dimension == null ? (
-            visibleRows.map((row) => (
-              <button key={row.id} type="button" onClick={() => { setDimension(row.id); setSearch(""); }} style={rowStyle}>
-                {row.label}
-              </button>
-            ))
+            visibleRows.map((row) => {
+              const summary = valueSummary(row.id, query, projects, statuses, assignees, labels, milestones);
+              return (
+                <button key={row.id} type="button" aria-label={row.label} onClick={() => { setDimension(row.id); setSearch(""); }} style={rowStyle}>
+                  <RowIcon dimension={row.id} />
+                  <span>{row.label}</span>
+                  <span style={{ flex: 1 }} />
+                  {summary !== "" && <span style={{ color: "var(--text-muted)" }}>{summary}</span>}
+                  <Chevron direction="right" />
+                </button>
+              );
+            })
           ) : (
             <>
               <button type="button" onClick={() => { setDimension(null); setSearch(""); }} style={{ ...rowStyle, color: "var(--text-muted)" }}>
-                {ROWS.find((row) => row.id === dimension)?.label}
+                <Chevron direction="left" />
+                <span>{ROWS.find((row) => row.id === dimension)?.label}</span>
               </button>
               {visibleOptions.map((option) => (
                 <button
@@ -173,6 +184,84 @@ export function FilterMenu({
       )}
     </div>
   );
+}
+
+function iconProps() {
+  return {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    style: { flexShrink: 0, color: "var(--text-muted)" },
+  };
+}
+
+function RowIcon({ dimension }: { dimension: Dimension }) {
+  if (dimension === "due") {
+    return (
+      <svg aria-hidden="true" {...iconProps()}>
+        <rect width="18" height="18" x="3" y="4" rx="2" />
+        <path d="M16 2v4" />
+        <path d="M3 10h18" />
+        <path d="M8 2v4" />
+        <path d="M17 14h-6" />
+        <path d="M13 18H7" />
+        <path d="M7 14h.01" />
+        <path d="M17 18h.01" />
+      </svg>
+    );
+  }
+  return (
+    <svg aria-hidden="true" {...iconProps()}>
+      <path d="M13 5h8" />
+      <path d="M13 12h8" />
+      <path d="M13 19h8" />
+      <path d="m3 17 2 2 4-4" />
+      <path d="m3 7 2 2 4-4" />
+    </svg>
+  );
+}
+
+function Chevron({ direction }: { direction: "left" | "right" }) {
+  return (
+    <svg aria-hidden="true" {...iconProps()}>
+      <path d={direction === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
+    </svg>
+  );
+}
+
+function selectedIds(dimension: Dimension, query: PlannerQuery): string[] {
+  if (dimension === "project") return query.projectIds;
+  if (dimension === "status") return query.stateTypes;
+  if (dimension === "assignee") return query.assigneeIds;
+  if (dimension === "priority") return query.priorities.map(String);
+  if (dimension === "label") return query.labelNames;
+  if (dimension === "milestone") return query.milestoneIds;
+  return [];
+}
+
+function valueSummary(
+  dimension: Dimension,
+  query: PlannerQuery,
+  projects: FilterOption[],
+  statuses: string[],
+  assignees: FilterOption[],
+  labels: string[],
+  milestones: FilterOption[],
+): string {
+  if (dimension === "due") {
+    const match = DUE_OPTIONS.find((option) => option.id === query.dueWindow);
+    return match ? match.label : "";
+  }
+  const ids = selectedIds(dimension, query);
+  if (ids.length === 0) return "";
+  if (ids.length > 1) return `${ids.length} selected`;
+  const options = optionsFor(dimension, projects, statuses, assignees, labels, milestones);
+  return options.find((option) => option.id === ids[0])?.label ?? "";
 }
 
 function optionsFor(
