@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PlannerQuery } from "../../plannerQuery";
 import type { SavedView, SavedViewMode } from "../../savedViews";
 import { createSavedView, deleteSavedView, loadSavedViews, renameSavedView } from "../../savedViews";
@@ -21,15 +21,67 @@ const panelStyle = {
   right: 0,
   top: "calc(100% + 6px)",
   zIndex: 80,
-  width: 280,
-  maxWidth: "calc(100vw - 24px)",
+  width: 256,
+  maxWidth: "100vw",
   boxSizing: "border-box" as const,
   background: "var(--surface)",
   border: "1px solid var(--border)",
   borderRadius: 8,
-  padding: 8,
   color: "var(--text)",
 };
+
+const iconButtonStyle = {
+  width: 24,
+  height: 24,
+  padding: 0,
+  border: "none",
+  borderRadius: 4,
+  background: "transparent",
+  color: "var(--text-muted)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  flexShrink: 0,
+} as const;
+
+function Icon({ children }: { children: ReactNode }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <Icon>
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </Icon>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <Icon>
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+      <path d="m15 5 4 4" />
+    </Icon>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <Icon>
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </Icon>
+  );
+}
 
 export function ViewMenu({
   query,
@@ -132,88 +184,99 @@ export function ViewMenu({
       </button>
       {open && (
         <div style={panelStyle}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-            <h2 style={{ margin: 0, fontSize: 14, color: "var(--text)" }}>Views</h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 6px 8px 12px", borderBottom: "1px solid var(--border)" }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-muted)" }}>Views</span>
             <button
               type="button"
-              aria-label="Create view"
+              aria-label="Save current as view"
               onClick={() => { setNaming(true); setRenameId(null); setName(""); }}
-              style={{ ...buttonStyle, padding: "2px 8px", background: "var(--accent)", color: "var(--accent-text)", borderColor: "var(--accent)" }}
+              style={iconButtonStyle}
             >
-              +
+              <PlusIcon />
             </button>
           </div>
-          {error && <p style={{ margin: "0 0 8px", color: "var(--text-muted)", fontSize: 12 }}>{error}</p>}
-          {naming && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void create(name);
-              }}
-              style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 8 }}
-            >
-              <input
-                placeholder="View name"
-                aria-label="View name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setNaming(false);
-                    setName("");
-                  }
+          <div style={{ padding: 4 }}>
+            {error && <p style={{ margin: "0 0 8px", color: "var(--text-muted)", fontSize: 12 }}>{error}</p>}
+            {naming && (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void create(name);
                 }}
-                style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
-              />
-              <button type="button" onClick={() => { setNaming(false); setName(""); }} style={buttonStyle}>Cancel</button>
-              <button type="button" aria-label="Save view" disabled={name.trim() === ""} onClick={() => void create(name)} style={buttonStyle}>Save</button>
-            </form>
-          )}
-          {views.map((view) => (
-            <div key={view.id} style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              {renameId === view.id ? (
-                <form
-                  style={{ display: "flex", flex: 1, gap: 4, alignItems: "center" }}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void rename(view.id, name);
-                  }}
-                >
-                  <input
-                    aria-label="View name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        setRenameId(null);
-                        setName("");
-                      }
-                    }}
-                    style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
-                  />
-                  <button type="button" onClick={() => { setRenameId(null); setName(""); }} style={buttonStyle}>Cancel</button>
-                  <button type="button" aria-label="Save name" disabled={name.trim() === ""} onClick={() => void rename(view.id, name)} style={buttonStyle}>Save</button>
-                </form>
-              ) : (
-                <button type="button" onClick={() => onApply(view)} style={{ ...buttonStyle, flex: 1, minWidth: 0, textAlign: "left", background: "transparent" }}>
-                  {view.name}
-                </button>
-              )}
-              <button
-                type="button"
-                aria-label={`Rename ${view.name}`}
-                onClick={() => { setRenameId(view.id); setNaming(false); setName(view.name); }}
-                style={buttonStyle}
+                style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 8, padding: "6px 8px" }}
               >
-                Rename
-              </button>
-              <button type="button" aria-label={`Delete ${view.name}`} onClick={() => void remove(view.id)} style={buttonStyle}>
-                Delete
-              </button>
-            </div>
-          ))}
+                <input
+                  placeholder="View name"
+                  aria-label="View name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setNaming(false);
+                      setName("");
+                    }
+                  }}
+                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                />
+                <button type="button" onClick={() => { setNaming(false); setName(""); }} style={buttonStyle}>Cancel</button>
+                <button type="button" aria-label="Save view" disabled={name.trim() === ""} onClick={() => void create(name)} style={buttonStyle}>Save</button>
+              </form>
+            )}
+            {views.map((view) => (
+              <div
+                key={view.id}
+                style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, padding: "0 8px", borderRadius: 6 }}
+                onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg)"; }}
+                onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+              >
+                {renameId === view.id ? (
+                  <form
+                    style={{ display: "flex", flex: 1, gap: 4, alignItems: "center", padding: "6px 0" }}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void rename(view.id, name);
+                    }}
+                  >
+                    <input
+                      aria-label="View name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setRenameId(null);
+                          setName("");
+                        }
+                      }}
+                      style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                    />
+                    <button type="button" onClick={() => { setRenameId(null); setName(""); }} style={buttonStyle}>Cancel</button>
+                    <button type="button" aria-label="Save name" disabled={name.trim() === ""} onClick={() => void rename(view.id, name)} style={buttonStyle}>Save</button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onApply(view)}
+                    style={{ flex: 1, minWidth: 0, textAlign: "left", padding: "12px 0", border: "none", background: "transparent", color: "var(--text)", fontSize: 14, cursor: "pointer" }}
+                  >
+                    {view.name}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Rename ${view.name}`}
+                  onClick={() => { setRenameId(view.id); setNaming(false); setName(view.name); }}
+                  style={iconButtonStyle}
+                >
+                  <PencilIcon />
+                </button>
+                <button type="button" aria-label={`Delete ${view.name}`} onClick={() => void remove(view.id)} style={iconButtonStyle}>
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
