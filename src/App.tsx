@@ -171,6 +171,20 @@ export default function App() {
               return;
             }
             setProjects(projs);
+            const urlProjectId = getProjectIdFromUrl();
+            const match = urlProjectId ? projs.find((p) => p.id === urlProjectId) : null;
+            const ps = loadProjectSettings(match ? urlProjectId : null);
+            setNumWorkers(ps.numWorkers);
+            setMode(ps.mode);
+            setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
+            setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
+            setIncludeDoneIssuesTreeGlobal(ps.includeDoneIssuesTreeGlobal);
+            setShowWeekends(ps.showWeekends);
+            setShowHolidays(ps.showHolidays);
+            setShowCooldown(ps.showCooldown);
+            setShowCapacityForecast(ps.showCapacityForecast);
+            setStartStatusName(ps.startStatusName);
+            setEndStatusName(ps.endStatusName);
             setConnected(true);
             setRestoring(false);
           })

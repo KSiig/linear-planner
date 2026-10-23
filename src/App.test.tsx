@@ -32,6 +32,7 @@ vi.mock("./linear", () => ({
 
 vi.mock("./applyPlannerQuery", () => ({
   fetchScopedIssues: vi.fn(async () => []),
+  fetchScopedById: vi.fn(async () => []),
   filterMatchingIssues: () => [],
   projectIdsToLoad: () => ["p1"],
   toOverviewIssue: (issue: unknown) => issue,
