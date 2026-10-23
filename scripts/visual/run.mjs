@@ -413,7 +413,7 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
     await assertHeaderChrome(page);
     if (surface.state === 'filters') {
-      await page.getByRole('button', { name: 'Filters' }).click();
+      await page.getByRole('button', { name: 'Filters', exact: true }).click();
       await page.getByPlaceholder('Search filters...').waitFor({ state: 'visible', timeout: 15_000 });
       await page.getByRole('heading', { name: 'Filters' }).waitFor({ state: 'visible', timeout: 15_000 });
       await page.getByText('Project', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
