@@ -25,6 +25,30 @@ export const PROJECT = Object.freeze({
   name: 'priskurven',
 });
 
+// Filter-menu project only. Its issue id is not in ISSUE_TABLE.
+export const ADHOC_PROJECT = Object.freeze({
+  id: 'proj-adhoc',
+  name: 'Ad-hoc',
+  issueId: 'iss-adhoc',
+});
+
+export const SAVED_VIEWS = Object.freeze([
+  Object.freeze({
+    id: 'view-huskob',
+    name: 'Huskøb',
+    mode: 'overview',
+    query: Object.freeze({
+      projectIds: [],
+      stateTypes: [],
+      assigneeIds: [],
+      priorities: [],
+      labelNames: [],
+      milestoneIds: [],
+      dueWindow: null,
+    }),
+  }),
+]);
+
 export const MILESTONES = Object.freeze([
   Object.freeze({ id: 'ms-m1', name: 'M1 — Shelf collector', sortOrder: 1042 }),
 ]);

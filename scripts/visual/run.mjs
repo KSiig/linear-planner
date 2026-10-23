@@ -24,7 +24,9 @@ import { chromium } from 'playwright';
 
 import { VIEWPORTS } from './viewports.mjs';
 import {
+  ADHOC_PROJECT,
   PROJECT,
+  SAVED_VIEWS,
   TEAM,
   STATES,
   ISSUES,
@@ -53,6 +55,8 @@ const DATA_VIEW_PATH = '/proj-priskurven/';
 const SURFACES = Object.freeze([
   Object.freeze({ view: 'landing',     state: 'sign-in',   needsAuth: false }),
   Object.freeze({ view: 'timeline',    state: 'populated', needsAuth: true  }),
+  Object.freeze({ view: 'timeline',    state: 'filters',   needsAuth: true  }),
+  Object.freeze({ view: 'timeline',    state: 'views',     needsAuth: true  }),
   Object.freeze({ view: 'tree',        state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'tree-global', state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'settings',    state: 'panel',     needsAuth: true  }),
@@ -177,14 +181,21 @@ function dispatchGraphQL(query, variables) {
 }
 
 function projectPage() {
+  const team = { id: TEAM.id, name: TEAM.name, key: TEAM.key };
   return {
     projects: {
       nodes: [
         {
           id: PROJECT.id,
           name: PROJECT.name,
-          teams: { nodes: [{ id: TEAM.id, name: TEAM.name, key: TEAM.key }] },
+          teams: { nodes: [team] },
           issues: { nodes: [{ id: ISSUES[0].id }] },
+        },
+        {
+          id: ADHOC_PROJECT.id,
+          name: ADHOC_PROJECT.name,
+          teams: { nodes: [team] },
+          issues: { nodes: [{ id: ADHOC_PROJECT.issueId }] },
         },
       ],
       pageInfo: { hasNextPage: false, endCursor: null },
@@ -282,6 +293,20 @@ async function registerGraphQLMock(context) {
     }
   });
 
+  await context.route('**/api/views', async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && pathname === '/api/views') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(SAVED_VIEWS),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
   await context.route('https://api.linear.app/graphql', async (route) => {
     const request = route.request();
     if (request.method() !== 'POST') {
@@ -372,6 +397,21 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
       await forecastChip.click();
     }
     await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
+    if (surface.state === 'filters') {
+      await page.getByRole('button', { name: 'Filters' }).click();
+      await page.getByText('Search filters...').waitFor({ state: 'visible', timeout: 15_000 });
+      await page.getByText('Project', { exact: true }).click();
+      await page.getByText('Ad-hoc').waitFor({ state: 'visible', timeout: 15_000 });
+    } else if (surface.state === 'views') {
+      await page.getByRole('button', { name: 'Views' }).click();
+      await page.getByText('Huskøb').waitFor({ state: 'visible', timeout: 15_000 });
+    }
+    if (surface.state === 'filters' || surface.state === 'views') {
+      const documentScrolls = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      if (documentScrolls) fail('timeline document scrolls horizontally');
+    }
   } else if (surface.view === 'tree') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
