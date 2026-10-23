@@ -46,7 +46,7 @@ function FilterChip({ pressed, onClick, children }: { pressed: boolean; onClick:
         borderRadius: 999,
         border: "1px solid var(--border)",
         background: pressed ? "var(--accent)" : "transparent",
-        color: pressed ? "#fff" : "var(--text-muted)",
+        color: pressed ? "var(--accent-text)" : "var(--text-muted)",
         fontSize: 12,
         fontWeight: 600,
         whiteSpace: "nowrap",
@@ -603,16 +603,16 @@ export default function App() {
             {!!selectedProjectId && (mode === "overview" || !loading) && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8, ...(narrow ? { flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : {}) }}>
                 <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", ...(narrow ? { width: "100%" } : {}) }}>
-                  <button aria-label="Timeline" onClick={() => setMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Timeline" onClick={() => setMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Timeline
                   </button>
-                  <button aria-label="Tree (per milestone)" onClick={() => setMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Tree (per milestone)" onClick={() => setMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     {narrow ? "Milestones" : "Tree (per milestone)"}
                   </button>
-                  <button aria-label="Tree (global)" onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Tree (global)" onClick={() => setMode("treeGlobal")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "treeGlobal" ? "var(--accent)" : "var(--bg)", color: mode === "treeGlobal" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     {narrow ? "All issues" : "Tree (global)"}
                   </button>
-                  <button aria-label="Overview" onClick={() => setMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "#fff" : "var(--text-muted)" }}>
+                  <button aria-label="Overview" onClick={() => setMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Overview
                   </button>
                 </div>
