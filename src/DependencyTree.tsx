@@ -556,7 +556,7 @@ export function DependencyTree({
                   }
                 }}
                 disabled={committing}
-                style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "var(--accent)", color: "#fff", cursor: committing ? "default" : "pointer", fontSize: 13, fontWeight: 600, opacity: committing ? 0.7 : 1 }}
+                style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "var(--accent)", color: "var(--accent-text)", cursor: committing ? "default" : "pointer", fontSize: 13, fontWeight: 600, opacity: committing ? 0.7 : 1 }}
               >
                 {committing ? "Saving…" : "Confirm"}
               </button>
