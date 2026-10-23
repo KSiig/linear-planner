@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties } from "react";
-import { fetchProjects, fetchProjectIssues, fetchProjectCycles, fetchProjectMilestones, fetchProjectWorkflowStates, fetchIssueStateHistory, endDateFromTransitions, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
+import { fetchProjects, fetchProjectCycles, fetchProjectMilestones, fetchProjectWorkflowStates, fetchIssueStateHistory, endDateFromTransitions, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
 import type { LinearProject, LinearIssue, LinearCycle, LinearMilestone, LinearWorkflowState, StateTransition, AssignedInterval, NoCountRange } from "./linear";
 import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isWriteEnabled, setWriteEnabled, isAutoRefreshEnabled, setAutoRefreshEnabled } from "./auth";
 import { scheduleIssues, buildIsDone } from "./scheduler";
@@ -15,6 +15,10 @@ import { ProjectSelect } from "./ProjectSelect";
 import { centerCard, tabButtonStyle, stepperButtonStyle, buttonStyle } from "./appStyles";
 import { useNarrowLayout } from "./useNarrowLayout";
 import { Overview } from "./views/overview/Overview";
+import { localToday } from "./views/overview/calendar";
+import type { OverviewIssue } from "./views/overview/cards/shell/contract";
+import { fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
+import { loadPlannerQuery, saveActiveViewId, savePlannerQuery } from "./savedViews";
 
 const modeSettingStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" };
 
@@ -88,6 +92,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [projectIssues, setProjectIssues] = useState<LinearIssue[]>([]);
+  const [overviewIssues, setOverviewIssues] = useState<OverviewIssue[]>([]);
+  const [plannerQuery, setPlannerQuery] = useState(loadPlannerQuery);
   const [projectCycles, setProjectCycles] = useState<LinearCycle[]>([]);
   const [projectMilestones, setProjectMilestones] = useState<LinearMilestone[]>([]);
   const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
@@ -95,6 +101,9 @@ export default function App() {
 
   const endStatusNameRef = useRef(endStatusName);
   endStatusNameRef.current = endStatusName;
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  const loadGen = useRef(0);
 
   // Timestamp of the last data load (manual or auto), used to throttle auto-refresh.
   const lastRefreshAtRef = useRef(0);
@@ -268,8 +277,12 @@ export default function App() {
   }, []);
 
   const loadProject = useCallback(async (projectId: string) => {
-    if (!projectId) {
+    const gen = ++loadGen.current;
+    const query = loadPlannerQuery();
+    const ids = projectIdsToLoad(query, projectId);
+    if (!projectId && ids.length === 0) {
       setProjectIssues([]);
+      setOverviewIssues([]);
       setProjectCycles([]);
       setProjectMilestones([]);
       setWorkflowStates([]);
@@ -277,23 +290,40 @@ export default function App() {
     }
     setError(null);
     setLoading(true);
+    setOverviewIssues([]);
     lastRefreshAtRef.current = Date.now();
     try {
-      const [issues, cycles, milestones, states] = await Promise.all([
-        fetchProjectIssues(projectId),
-        fetchProjectCycles(projectId),
-        fetchProjectMilestones(projectId),
-        fetchProjectWorkflowStates(projectId),
-      ]);
+      const issuePromise = fetchScopedIssues(ids, projectsRef.current);
+      const metaPromise = projectId
+        ? Promise.all([
+            fetchProjectCycles(projectId),
+            fetchProjectMilestones(projectId),
+            fetchProjectWorkflowStates(projectId),
+          ])
+        : Promise.resolve([[] as LinearCycle[], [] as LinearMilestone[], [] as LinearWorkflowState[]] as const);
+      const [stamped, meta] = await Promise.all([issuePromise, metaPromise]);
+      if (gen !== loadGen.current) return;
+      const [cycles, milestones, states] = meta;
+      const matched = filterMatchingIssues(stamped, query, projectId, localToday(new Date()));
+      setOverviewIssues(matched.map(toOverviewIssue));
       setWorkflowStates(states);
-      if (issues.length === 0) {
+      if (stamped.length === 0) {
         setProjectIssues([]);
+        setOverviewIssues([]);
         setProjectCycles([]);
         setProjectMilestones([]);
-        setError("No issues found in this project.");
+        if (projectId) setError("No issues found in this project.");
         setLoading(false);
         return;
       }
+      if (matched.length === 0) {
+        setProjectIssues([]);
+        setProjectCycles(cycles);
+        setProjectMilestones(milestones);
+        setLoading(false);
+        return;
+      }
+      const issues = matched;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       let start = today;
@@ -324,6 +354,7 @@ export default function App() {
         if (iso) endDates.set(id, iso);
       }
 
+      if (gen !== loadGen.current) return;
       setDoneEndDates(endDates);
       setStateHistoryByIssue(history.transitions);
       setAssignedIntervalsByIssue(history.assignedIntervals);
@@ -333,11 +364,25 @@ export default function App() {
       setProjectMilestones(milestones);
       setChartStart(start);
     } catch (e) {
+      if (gen !== loadGen.current) return;
       setError(e instanceof Error ? e.message : "Failed to fetch issues");
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    const loaded = loadPlannerQuery();
+    const next = { ...loaded, projectIds: [] as string[] };
+    savePlannerQuery(next);
+    saveActiveViewId(null);
+    setPlannerQuery(next);
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    savePlannerQuery(plannerQuery);
+  }, [plannerQuery]);
 
   const prevProjectId = useRef("");
   useEffect(() => {
@@ -704,7 +749,7 @@ export default function App() {
               />
             )}
             {mode === "overview" && selectedProjectId && (
-              <Overview projectId={selectedProjectId} projectName={projects.find((p) => p.id === selectedProjectId)?.name ?? ""} />
+              <Overview issues={overviewIssues} />
             )}
             {!loading && !error && !schedule && mode !== "overview" && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "var(--text-muted)" }}>Select a project to display.</div>

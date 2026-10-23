@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
-import { fetchProjectIssues, fetchProjectTeamIds, fetchTeamIssues, isPlannableIssue } from "../../linear";
-import type { OverviewCardIssue } from "../../linear";
+import { useEffect, useMemo, useState } from "react";
 import { localToday } from "./calendar";
 import { CardShell } from "./cards/shell";
-import type { CardContext, CardModel, CardModule } from "./cards/shell/contract";
+import type { CardContext, CardModel, CardModule, OverviewIssue } from "./cards/shell/contract";
 import { overviewCards } from "./registry";
 
 function OverviewCard({ card, ctx }: { card: CardModule; ctx: CardContext }) {
@@ -23,58 +21,8 @@ function OverviewCard({ card, ctx }: { card: CardModule; ctx: CardContext }) {
   return <CardShell card={card} model={model} />;
 }
 
-export function Overview({ projectId, projectName }: { projectId: string; projectName: string }) {
-  const [ctx, setCtx] = useState<CardContext | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    setCtx(null);
-
-    (async () => {
-      const teamIds = await fetchProjectTeamIds(projectId);
-      const issues: OverviewCardIssue[] = [];
-      if (teamIds.length === 0) {
-        const projectIssues = await fetchProjectIssues(projectId);
-        for (const issue of projectIssues) {
-          issues.push({
-            ...issue,
-            updatedAt: "",
-            state: { name: issue.state.name, type: issue.state.type },
-            project: { id: projectId, name: projectName },
-          });
-        }
-      } else {
-        const seen = new Set<string>();
-        for (const teamId of teamIds) {
-          const nodes = await fetchTeamIssues(teamId);
-          for (const issue of nodes) {
-            if (seen.has(issue.id) || !isPlannableIssue(issue)) continue;
-            seen.add(issue.id);
-            issues.push(issue);
-          }
-        }
-      }
-      if (!cancelled) {
-        setCtx({ today: localToday(new Date()), issues });
-      }
-    })().catch(() => {
-      if (!cancelled) setError("Failed to fetch issues");
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, projectName]);
-
-  if (error) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 64, color: "#ef4444", fontSize: 14 }}>
-        {error}
-      </div>
-    );
-  }
+export function Overview({ issues }: { issues: OverviewIssue[] }) {
+  const ctx = useMemo(() => ({ today: localToday(new Date()), issues }), [issues]);
 
   return (
     <div
@@ -89,7 +37,9 @@ export function Overview({ projectId, projectName }: { projectId: string; projec
         overflowX: "hidden",
       }}
     >
-      {ctx ? overviewCards.map((card) => <OverviewCard key={card.id} card={card} ctx={ctx} />) : null}
+      {overviewCards.map((card) => (
+        <OverviewCard key={card.id} card={card} ctx={ctx} />
+      ))}
     </div>
   );
 }
