@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { isPlannableIssue, parseNoCountRanges, endDateFromTransitions, addBlocksRelation, removeRelation } from "./linear";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { isPlannableIssue, parseNoCountRanges, endDateFromTransitions, addBlocksRelation, removeRelation, fetchProjectIssues } from "./linear";
 import type { LinearIssue } from "./linear";
+
+// The Linear API client reads the access token through `./auth`; stub it so the
+// fetch mock below is the only thing the request depends on.
+vi.mock("./auth", () => ({ getAccessToken: vi.fn(async () => "test-token") }));
 
 function withLabels(...names: string[]) {
   return {
@@ -84,7 +88,10 @@ function makeIssue(overrides: Partial<LinearIssue> & { id: string; identifier: s
     startedAt: null,
     completedAt: null,
     dueDate: null,
-    state: { name: "To do", type: "unstarted", color: "#ccc", position: 1 },
+    description: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    state: { id: "state-todo", name: "To do", type: "unstarted", color: "#ccc", position: 1 },
+    team: { id: "team-1" },
     assignee: null,
     projectMilestone: null,
     labels: { nodes: [] },
@@ -177,5 +184,132 @@ describe("endDateFromTransitions", () => {
 
   it("returns null without an end state name", () => {
     expect(endDateFromTransitions(transitions, "")).toBe(null);
+  });
+});
+
+describe("fetchProjectIssues", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A minimal issue node as the API returns it for the project issue selection. */
+  function issueNode(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "issue-1",
+      identifier: "SII-1",
+      title: "Some issue",
+      url: "https://linear.app/siig/issue/SII-1",
+      estimate: null,
+      priority: 0,
+      priorityLabel: "No priority",
+      sortOrder: 1000,
+      startedAt: null,
+      completedAt: null,
+      dueDate: null,
+      description: "Issue body",
+      updatedAt: "2026-10-29T12:34:56.789Z",
+      assignee: null,
+      state: { id: "state-todo", name: "Todo", type: "unstarted", color: "#ccc", position: 1 },
+      team: { id: "team-1" },
+      projectMilestone: null,
+      labels: { nodes: [] },
+      relations: { nodes: [] },
+      ...overrides,
+    };
+  }
+
+  function issuesPage(nodes: unknown[], hasNextPage = false, endCursor: string | null = null) {
+    return {
+      project: {
+        issues: { nodes, pageInfo: { hasNextPage, endCursor } },
+      },
+    };
+  }
+
+  function requestBody(callIndex: number) {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex][1].body));
+  }
+
+  it("requests the issue facts and returns them verbatim", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: issuesPage([issueNode()]) }),
+    });
+
+    const issues = await fetchProjectIssues("proj-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = requestBody(0);
+    expect(body.variables).toEqual({ projectId: "proj-1" });
+    expect(body.query).toContain("description");
+    expect(body.query).toContain("updatedAt");
+    expect(body.query).toMatch(/state\s*\{\s*id\b/);
+    expect(body.query).toMatch(/team\s*\{\s*id\s*\}/);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].description).toBe("Issue body");
+    expect(issues[0].updatedAt).toBe("2026-10-29T12:34:56.789Z");
+    expect(issues[0].state.id).toBe("state-todo");
+    expect(issues[0].team.id).toBe("team-1");
+  });
+
+  it("keeps a null description and the raw updatedAt timestamp", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: issuesPage([issueNode({ description: null, updatedAt: "2026-01-02T03:04:05.006Z" })]),
+      }),
+    });
+
+    const issues = await fetchProjectIssues("proj-1");
+
+    expect(issues[0].description).toBe(null);
+    expect(issues[0].updatedAt).toBe("2026-01-02T03:04:05.006Z");
+  });
+
+  it("pages through the project and drops issues that are not plannable", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: issuesPage(
+            [
+              issueNode({ id: "a", identifier: "A-1" }),
+              issueNode({ id: "b", identifier: "A-2", labels: { nodes: [{ name: "no-planner", color: "#ccc" }] } }),
+            ],
+            true,
+            "cursor-1",
+          ),
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: issuesPage([
+            issueNode({
+              id: "c",
+              identifier: "A-3",
+              state: { id: "state-dup", name: "Duplicate", type: "completed", color: "#999", position: 3 },
+            }),
+          ]),
+        }),
+      });
+
+    const issues = await fetchProjectIssues("proj-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestBody(1).variables).toEqual({ projectId: "proj-1", after: "cursor-1" });
+    expect(issues.map((i) => i.identifier)).toEqual(["A-1"]);
   });
 });

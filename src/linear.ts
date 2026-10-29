@@ -16,7 +16,13 @@ export interface LinearIssue {
   completedAt: string | null;
   /** Linear due date as `YYYY-MM-DD`, or null when the issue has none. */
   dueDate: string | null;
-  state: { name: string; type: string; color: string; position: number };
+  /** The issue body as written in Linear. Null when the issue has no description. */
+  description: string | null;
+  /** Timestamp of the issue's last update, kept exactly as the API returned it. */
+  updatedAt: string;
+  state: { id: string; name: string; type: string; color: string; position: number };
+  /** The team that owns the issue. A project can span teams, so this is authoritative. */
+  team: { id: string };
   assignee: { id: string; name: string; avatarUrl: string | null } | null;
   projectMilestone: { id: string; name: string; sortOrder: number } | null;
   labels: { nodes: Array<{ name: string; color: string }> };
@@ -340,8 +346,11 @@ export async function fetchProjectIssues(projectId: string): Promise<LinearIssue
               startedAt
               completedAt
               dueDate
+              description
+              updatedAt
               assignee { id name avatarUrl }
-              state { name type color position }
+              state { id name type color position }
+              team { id }
               projectMilestone { id name sortOrder }
               labels { nodes { name color } }
               relations {
