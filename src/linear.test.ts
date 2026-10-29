@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { isPlannableIssue, parseNoCountRanges, endDateFromTransitions, addBlocksRelation, removeRelation, fetchProjectIssues } from "./linear";
+import { isPlannableIssue, addBlocksRelation, removeRelation, fetchProjectIssues } from "./linear";
 import type { LinearIssue } from "./linear";
 
 // The Linear API client reads the access token through `./auth`; stub it so the
@@ -43,46 +43,10 @@ describe("isPlannableIssue", () => {
   });
 });
 
-describe("parseNoCountRanges", () => {
-  it("parses a single range from the documented format", () => {
-    expect(parseNoCountRanges("planner-no-count: 2026-06-10-AM, 2026-06-12-PM")).toEqual([
-      { startDate: "2026-06-10", startPm: false, endDate: "2026-06-12", endPm: true },
-    ]);
-  });
-
-  it("is case-insensitive on the directive and the AM/PM half", () => {
-    expect(parseNoCountRanges("Planner-No-Count: 2026-06-10-am, 2026-06-10-pm")).toEqual([
-      { startDate: "2026-06-10", startPm: false, endDate: "2026-06-10", endPm: true },
-    ]);
-  });
-
-  it("ignores lines and comments without the directive", () => {
-    expect(parseNoCountRanges("just a normal comment about 2026-06-10-AM")).toEqual([]);
-  });
-
-  it("supports multiple ranges across lines and pairs", () => {
-    const body = [
-      "planner-no-count: 2026-06-10-AM, 2026-06-12-PM",
-      "some prose",
-      "planner-no-count: 2026-07-01-PM, 2026-07-02-AM, 2026-07-05-AM, 2026-07-05-PM",
-    ].join("\n");
-    expect(parseNoCountRanges(body)).toEqual([
-      { startDate: "2026-06-10", startPm: false, endDate: "2026-06-12", endPm: true },
-      { startDate: "2026-07-01", startPm: true, endDate: "2026-07-02", endPm: false },
-      { startDate: "2026-07-05", startPm: false, endDate: "2026-07-05", endPm: true },
-    ]);
-  });
-
-  it("ignores a dangling unpaired token", () => {
-    expect(parseNoCountRanges("planner-no-count: 2026-06-10-AM")).toEqual([]);
-  });
-});
-
 function makeIssue(overrides: Partial<LinearIssue> & { id: string; identifier: string }): LinearIssue {
   return {
     title: overrides.identifier,
     url: `https://linear.app/${overrides.identifier}`,
-    estimate: null,
     priority: 0,
     priorityLabel: "No priority",
     startedAt: null,
@@ -108,7 +72,7 @@ describe("addBlocksRelation", () => {
     expect(blocker.relations.nodes).toEqual([
       { id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2" } },
     ]);
-    // The blocked issue is untouched (relation lives on the blocker, per the scheduler).
+    // The blocked issue is untouched (the relation lives on the blocker).
     expect(next.find((i) => i.id === "b")!.relations.nodes).toEqual([]);
   });
 
@@ -165,28 +129,6 @@ describe("removeRelation", () => {
   });
 });
 
-describe("endDateFromTransitions", () => {
-  const stateOf = (name: string) => ({ name, type: "started", position: 1 });
-  const transitions = [
-    { createdAt: "2025-04-07T08:00:00.000Z", fromState: null, toState: stateOf("In Progress") },
-    { createdAt: "2025-04-08T08:00:00.000Z", fromState: stateOf("In Progress"), toState: stateOf("Merged") },
-    { createdAt: "2025-04-09T08:00:00.000Z", fromState: stateOf("Merged"), toState: stateOf("In Progress") },
-    { createdAt: "2025-04-10T08:00:00.000Z", fromState: stateOf("In Progress"), toState: stateOf("Merged") },
-  ];
-
-  it("returns the most recent entry into the end state", () => {
-    expect(endDateFromTransitions(transitions, "Merged")).toBe("2025-04-10T08:00:00.000Z");
-  });
-
-  it("returns null when the issue never entered the end state", () => {
-    expect(endDateFromTransitions(transitions, "Released")).toBe(null);
-  });
-
-  it("returns null without an end state name", () => {
-    expect(endDateFromTransitions(transitions, "")).toBe(null);
-  });
-});
-
 describe("fetchProjectIssues", () => {
   const fetchMock = vi.fn();
 
@@ -206,7 +148,6 @@ describe("fetchProjectIssues", () => {
       identifier: "SII-1",
       title: "Some issue",
       url: "https://linear.app/siig/issue/SII-1",
-      estimate: null,
       priority: 0,
       priorityLabel: "No priority",
       sortOrder: 1000,

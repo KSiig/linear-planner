@@ -9,7 +9,6 @@ function issue(id: string, projectId: string, projectName: string, dueDate: stri
     identifier: id,
     title: id,
     url: `https://linear.app/issue/${id}`,
-    estimate: null,
     priority: 0,
     priorityLabel: "No priority",
     sortOrder: 0,

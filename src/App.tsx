@@ -1,16 +1,12 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties } from "react";
-import { fetchProjects, fetchProjectCycles, fetchProjectMilestones, fetchProjectWorkflowStates, fetchIssueStateHistory, endDateFromTransitions, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
-import type { LinearProject, LinearIssue, LinearCycle, LinearMilestone, LinearWorkflowState, StateTransition, AssignedInterval, NoCountRange } from "./linear";
+import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
+import type { LinearProject, LinearIssue, LinearMilestone, LinearWorkflowState } from "./linear";
 import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isWriteEnabled, setWriteEnabled, isAutoRefreshEnabled, setAutoRefreshEnabled } from "./auth";
-import { scheduleIssues } from "./scheduler";
-import type { ScheduleResult } from "./scheduler";
 import { DependencyTree } from "./DependencyTree";
 import { DeadlineTimeline } from "./DeadlineTimeline";
 import { BASE_PATH, getProjectIdFromUrl, navigateToProject } from "./routing";
-import { loadProjectSettings, saveProjectSettings, LEGACY_STORAGE_KEY, type Mode } from "./projectSettings";
-import { computeEffectiveDoneStateIds, resolveEndStatusName, sortStates } from "./workflowState";
+import { computeEffectiveDoneStateIds, sortStates } from "./workflowState";
 import { GlobalStatus } from "./GlobalStatus";
-import { isDoneIssue } from "./issueFacts";
 import { centerCard, tabButtonStyle, buttonStyle } from "./appStyles";
 import { useNarrowLayout } from "./useNarrowLayout";
 import { Overview } from "./views/overview/Overview";
@@ -18,7 +14,18 @@ import { localToday } from "./views/overview/calendar";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
 import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
 import type { PlannerQuery } from "./plannerQuery";
-import { loadActiveViewId, loadPlannerQuery, readSavedViewMode, saveActiveViewId, savePlannerQuery, type SavedView } from "./savedViews";
+import {
+  loadActiveViewId,
+  loadDisplaySettings,
+  loadPlannerQuery,
+  readSavedViewMode,
+  saveActiveViewId,
+  saveDisplaySettings,
+  savePlannerQuery,
+  LEGACY_STORAGE_KEY,
+  type SavedView,
+  type SavedViewMode as Mode,
+} from "./savedViews";
 import { FilterMenu } from "./views/filters/FilterMenu";
 import { FilterChips } from "./views/filters/FilterChips";
 import { ViewMenu } from "./views/filters/ViewMenu";
@@ -68,14 +75,6 @@ function FilterChip({ pressed, onClick, children }: { pressed: boolean; onClick:
 // Don't auto-refresh if the data was already refreshed within this window.
 const AUTO_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
 
-/**
- * How many people the tree's schedule assumes work in parallel.
- *
- * The planner no longer offers a "people in parallel" setting: the tree shows
- * the dependency order, not a staffing plan.
- */
-const SCHEDULE_WORKERS = 2;
-
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [projects, setProjects] = useState<LinearProject[]>([]);
@@ -84,10 +83,6 @@ export default function App() {
   const [includeDoneIssuesTree, setIncludeDoneIssuesTree] = useState(true);
   const [includeDoneIssuesTreeGlobal, setIncludeDoneIssuesTreeGlobal] = useState(true);
   const [doneStateIds, setDoneStateIds] = useState<string[]>([]);
-  const [doneEndDates, setDoneEndDates] = useState<Map<string, string>>(new Map());
-  const [stateHistoryByIssue, setStateHistoryByIssue] = useState<Map<string, StateTransition[]>>(new Map());
-  const [assignedIntervalsByIssue, setAssignedIntervalsByIssue] = useState<Map<string, AssignedInterval[]>>(new Map());
-  const [noCountByIssue, setNoCountByIssue] = useState<Map<string, NoCountRange[]>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(true);
@@ -100,10 +95,8 @@ export default function App() {
   const [plannerQuery, setPlannerQuery] = useState(loadPlannerQuery);
   const [activeViewId, setActiveViewId] = useState<string | null>(() => loadActiveViewId());
   const [activeView, setActiveView] = useState<SavedView | null>(null);
-  const [projectCycles, setProjectCycles] = useState<LinearCycle[]>([]);
   const [projectMilestones, setProjectMilestones] = useState<LinearMilestone[]>([]);
   const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
-  const [chartStart, setChartStart] = useState<Date>(new Date());
 
   const doneStateIdsRef = useRef(doneStateIds);
   doneStateIdsRef.current = doneStateIds;
@@ -118,8 +111,9 @@ export default function App() {
   // `projects` though, so an existing /p/<id> URL for one still restores.
   const selectableProjects = useMemo(() => projects.filter((p) => p.hasIssues), [projects]);
 
-  // The states the project can treat as terminal on top of the completed ones.
-  const doneStateCandidates = useMemo(
+  // The started states of the workflow: the states a project can treat as terminal
+  // on top of the completed ones, and the states the tree reads a card's progress from.
+  const startedStates = useMemo(
     () => sortStates(workflowStates.filter((s) => s.type === "started")),
     [workflowStates],
   );
@@ -131,23 +125,6 @@ export default function App() {
     [doneStateIds, workflowStates],
   );
   const doneStateIdSet = useMemo(() => new Set(effectiveDoneStateIds), [effectiveDoneStateIds]);
-
-  // The scheduler still takes one state name: the first configured done state.
-  const effectiveEndStatus = useMemo(
-    () => resolveEndStatusName(effectiveDoneStateIds, workflowStates),
-    [effectiveDoneStateIds, workflowStates],
-  );
-
-  // The scheduler's start state: the first started state of the workflow.
-  const effectiveStartStatus = useMemo(
-    () => (doneStateCandidates.length > 0 ? doneStateCandidates[0].name : ""),
-    [doneStateCandidates],
-  );
-
-  const schedule: ScheduleResult | null = useMemo(() => {
-    if (projectIssues.length === 0) return null;
-    return scheduleIssues(projectIssues, SCHEDULE_WORKERS, chartStart, projectCycles, projectMilestones, workflowStates, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue);
-  }, [projectIssues, projectCycles, projectMilestones, workflowStates, chartStart, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue]);
 
   /** The current calendar day (`YYYY-MM-DD`). */
   const today = localToday(new Date());
@@ -176,7 +153,7 @@ export default function App() {
             setProjects(projs);
             const urlProjectId = getProjectIdFromUrl();
             const match = urlProjectId ? projs.find((p) => p.id === urlProjectId) : null;
-            const ps = loadProjectSettings(match ? urlProjectId : null);
+            const ps = loadDisplaySettings(match ? urlProjectId : null);
             setMode(ps.mode);
             setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
             setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
@@ -214,7 +191,7 @@ export default function App() {
 
         const urlProjectId = getProjectIdFromUrl();
         const match = urlProjectId ? projs.find((p) => p.id === urlProjectId) : null;
-        const ps = loadProjectSettings(match ? urlProjectId : null);
+        const ps = loadDisplaySettings(match ? urlProjectId : null);
         setMode(ps.mode);
         setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
         setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
@@ -240,7 +217,7 @@ export default function App() {
 
   useEffect(() => {
     if (!connected) return;
-    saveProjectSettings({ mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, doneStateIds });
+    saveDisplaySettings({ mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, doneStateIds });
   }, [connected, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, doneStateIds]);
 
   useEffect(() => {
@@ -266,7 +243,6 @@ export default function App() {
     if (ids.length === 0) {
       setProjectIssues([]);
       setOverviewIssues([]);
-      setProjectCycles([]);
       setProjectMilestones([]);
       setWorkflowStates([]);
       return;
@@ -276,9 +252,8 @@ export default function App() {
     setOverviewIssues([]);
     lastRefreshAtRef.current = Date.now();
     try {
-      const [stamped, cycles, milestones, states] = await Promise.all([
+      const [stamped, milestones, states] = await Promise.all([
         fetchScopedIssues(ids, projectsRef.current),
-        fetchScopedById(ids, fetchProjectCycles),
         fetchScopedById(ids, fetchProjectMilestones),
         fetchScopedById(ids, fetchProjectWorkflowStates),
       ]);
@@ -289,7 +264,6 @@ export default function App() {
       if (stamped.length === 0) {
         setProjectIssues([]);
         setOverviewIssues([]);
-        setProjectCycles([]);
         setProjectMilestones([]);
         setError("No issues found in this project.");
         setLoading(false);
@@ -297,55 +271,13 @@ export default function App() {
       }
       if (matched.length === 0) {
         setProjectIssues([]);
-        setProjectCycles(cycles);
         setProjectMilestones(milestones);
         setLoading(false);
         return;
       }
-      const issues = matched;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      let start = today;
-      for (const issue of issues) {
-        if (issue.startedAt) {
-          const d = new Date(issue.startedAt);
-          d.setHours(0, 0, 0, 0);
-          if (d < start) start = d;
-        }
-      }
-      // The shared done-state logic: a completed-type state is terminal, and so is
-      // every state the project configured as done.
-      const doneStateIds = computeEffectiveDoneStateIds(doneStateIdsRef.current, states);
-      const doneStateIdSet = new Set(doneStateIds);
-      const doneIds = issues.filter((i) => i.startedAt && isDoneIssue(i, doneStateIdSet)).map((i) => i.id);
-      // The scheduler still takes one state name: the first configured done state.
-      const endName = resolveEndStatusName(doneStateIds, states);
-
-      // Fetch the state-transition history of every issue that ever started — done ones
-      // included. The scheduler uses it to discount time spent in below-start states (e.g.
-      // "Waiting for info"), which Linear's own `startedAt` would otherwise treat as start
-      // time, and to read the `planner-no-count:` corrections out of the comments.
-      const startedIds = issues.filter((i) => i.startedAt).map((i) => i.id);
-      const history = startedIds.length > 0
-        ? await fetchIssueStateHistory(startedIds)
-        : { transitions: new Map<string, StateTransition[]>(), assignedIntervals: new Map<string, AssignedInterval[]>(), noCount: new Map<string, NoCountRange[]>() };
-
-      // End dates come out of that same history — no second query pass.
-      const endDates = new Map<string, string>();
-      for (const id of doneIds) {
-        const iso = endDateFromTransitions(history.transitions.get(id) ?? [], endName);
-        if (iso) endDates.set(id, iso);
-      }
-
       if (gen !== loadGen.current) return;
-      setDoneEndDates(endDates);
-      setStateHistoryByIssue(history.transitions);
-      setAssignedIntervalsByIssue(history.assignedIntervals);
-      setNoCountByIssue(history.noCount);
-      setProjectIssues(issues);
-      setProjectCycles(cycles);
+      setProjectIssues(matched);
       setProjectMilestones(milestones);
-      setChartStart(start);
     } catch (e) {
       if (gen !== loadGen.current) return;
       setError(e instanceof Error ? e.message : "Failed to fetch issues");
@@ -396,7 +328,6 @@ export default function App() {
     await logout();
     setConnected(false);
     setProjectIssues([]);
-    setProjectCycles([]);
     setProjectMilestones([]);
     setWorkflowStates([]);
     setProjects([]);
@@ -425,7 +356,7 @@ export default function App() {
       throw err;
     }
     // Optimistic update: patch the local issue data in place instead of refetching everything.
-    // The schedule + tree are derived from projectIssues via useMemo, so the tree redraws without
+    // The tree is derived from projectIssues via useMemo, so the tree redraws without
     // unmounting — the container keeps its scroll position.
     setProjectIssues((prev) => addBlocksRelation(prev, blockerId, blockedId, relationId));
   }, [loadProject]);
@@ -503,12 +434,12 @@ export default function App() {
 
   const settingsFields = (
     <>
-      {doneStateCandidates.length > 0 && (
+      {startedStates.length > 0 && (
         <>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "var(--text-muted)" }}>
             <span>Done states</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto" }}>
-              {doneStateCandidates.map((state) => (
+              {startedStates.map((state) => (
                 <label
                   key={state.id}
                   style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
@@ -723,11 +654,12 @@ export default function App() {
             {!loading && !error && mode === "dates" && (
               <DeadlineTimeline issues={projectIssues} />
             )}
-            {!loading && !error && schedule && mode === "tree" && (
+            {!loading && !error && mode === "tree" && (
               <DependencyTree
-                schedule={schedule}
                 issues={projectIssues}
+                milestones={projectMilestones}
                 doneStateIds={doneStateIdSet}
+                startedStates={startedStates}
                 today={today}
                 variant={drawCrossMilestoneDeps ? "split" : "individual"}
                 includeDone={includeDoneIssuesTree}

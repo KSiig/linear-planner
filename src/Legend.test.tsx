@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { ScheduledIssue } from "./scheduler";
+import type { TreeIssue } from "./treeFacts";
 import { Legend } from "./Legend";
 
 beforeAll(() => {
@@ -26,23 +26,29 @@ afterEach(() => {
   cleanup();
 });
 
-function issue(overrides: Partial<ScheduledIssue> = {}): ScheduledIssue {
+function issue(overrides: Partial<TreeIssue> = {}): TreeIssue {
   return {
     id: "i1",
     identifier: "A-1",
     title: "Ship the thing",
     url: "https://linear.app/siig/issue/A-1",
+    milestone: null,
     stateName: "In Progress",
     stateType: "started",
     stateColor: "#f2994a",
     stateProgress: 0.5,
     priority: 0,
-    estimate: 3,
-    hasEstimate: true,
+    priorityLabel: "No priority",
+    assigneeAvatarUrl: null,
+    assigneeName: null,
+    labels: [],
     done: false,
-    isCapacityForecast: false,
+    blockedBy: [],
+    dueDate: null,
+    startedAt: null,
+    completedAt: null,
     ...overrides,
-  } as ScheduledIssue;
+  };
 }
 
 describe("Legend", () => {
@@ -65,16 +71,16 @@ describe("Legend", () => {
     expect(screen.getByText("Done")).toBeTruthy();
   });
 
-  it("does not show an estimate, a default duration or a workday value", () => {
-    render(<Legend issues={[issue(), issue({ id: "i2", identifier: "A-2", hasEstimate: false, estimate: 0 })]} />);
+  it("shows no estimate, no default duration and no workday value", () => {
+    render(<Legend issues={[issue(), issue({ id: "i2", identifier: "A-2" })]} />);
     expect(screen.queryByText(/no estimate/i)).toBeNull();
     expect(screen.queryByText(/default 3d/i)).toBeNull();
     expect(screen.queryByText(/working day/i)).toBeNull();
     expect(screen.queryByText(/\d+d/)).toBeNull();
   });
 
-  it("does not show a capacity forecast", () => {
-    render(<Legend issues={[issue({ isCapacityForecast: true })]} />);
+  it("shows no capacity forecast", () => {
+    render(<Legend issues={[issue()]} />);
     expect(screen.queryByText(/capacity forecast/i)).toBeNull();
     expect(screen.queryByText(/forecast/i)).toBeNull();
   });

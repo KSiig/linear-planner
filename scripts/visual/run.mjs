@@ -31,7 +31,6 @@ import {
   STATES,
   ISSUES,
   MILESTONES,
-  getHistoryForIssue,
 } from './fixture.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -164,7 +163,6 @@ async function buildOnce() {
 // Match order matters: `projects(` must come before `issues(` because the
 // projects query also contains `issues(first: 1)` as an emptiness probe.
 function dispatchGraphQL(query, variables) {
-  if (query.includes('history(first:')) return historyPage(variables);
   if (query.includes('projects(')) return projectPage();
   // OverviewTeamIssues also contains issues(first:. Match it first so the
   // project issues page stays the project(id) response.
@@ -258,24 +256,6 @@ function projectTeamsPage() {
       teams: { nodes: [{ id: TEAM.id }] },
     },
   };
-}
-
-function historyPage(variables) {
-  // Variables carry one id0, id1, ... per issue; the result must carry
-  // matching i0, i1, ... keys in the same order.
-  const data = {};
-  let idx = 0;
-  while (`id${idx}` in variables) {
-    const issueId = variables[`id${idx}`];
-    const nodes = getHistoryForIssue(issueId);
-    data[`i${idx}`] = {
-      id: issueId,
-      history: { nodes },
-      comments: { nodes: [] },
-    };
-    idx += 1;
-  }
-  return data;
 }
 
 async function registerGraphQLMock(context) {

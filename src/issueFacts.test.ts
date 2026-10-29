@@ -24,7 +24,6 @@ function issue(overrides: Partial<LinearIssue> = {}): LinearIssue {
     identifier: "TEST-1",
     title: "Test issue",
     url: "https://linear.app/test/issue-1",
-    estimate: null,
     priority: 0,
     priorityLabel: "No priority",
     sortOrder: 0,
