@@ -1,86 +1,168 @@
-import { describe, it, expect } from "vitest";
-import { buildMilestoneSummary, elapsedWorkingDays, theoreticalWorkingDays } from "./MilestoneHeader";
-import type { ScheduledIssue } from "./scheduler";
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { GlobalStatus } from "./GlobalStatus";
+import type { LinearIssue } from "./linear";
 
-const MONDAY = new Date(2025, 3, 7); // April 7, 2025
+const TODAY = "2026-03-01";
 
-function makeScheduledIssue(overrides: Partial<ScheduledIssue> & { id: string; identifier: string }): ScheduledIssue {
-  return {
-    title: overrides.identifier,
-    url: `https://linear.app/${overrides.identifier}`,
-    duration: overrides.estimate ?? 3,
-    estimate: 3,
-    startDay: 0,
-    endDay: 3,
-    worker: 0,
-    milestone: null,
-    stateName: "To do",
-    stateType: "unstarted",
-    stateColor: "#ccc",
-    stateProgress: 0,
-    priority: 0,
-    priorityLabel: "No priority",
-    assigneeAvatarUrl: null,
-    assigneeName: null,
-    daysSpent: null,
-    hasEstimate: true,
-    done: false,
-    isLate: false,
-    blockedBy: [],
-    ...overrides,
-  };
+/** The terminal state ids the project configures: the completed state and a custom "Merged" state. */
+const DONE_STATE_IDS = new Set<string>(["state-done"]);
+
+function state(id: string, name: string, type: string, position = 1): LinearIssue["state"] {
+  return { id, name, type, color: "#ccc", position };
 }
 
-/**
- * The Global bar and the Completed section must speak the same language: both are wall-clock
- * working days, never summed per-issue effort. These lock the two helpers they share.
- */
-describe("global vs completed elapsed maths", () => {
-  const done = [
-    makeScheduledIssue({ id: "a", identifier: "A-1", estimate: 5, daysSpent: 5, startDay: 0, endDay: 4, done: true, stateType: "completed" }),
-    makeScheduledIssue({ id: "b", identifier: "A-2", estimate: 5, daysSpent: 7, startDay: 0, endDay: 4, done: true, stateType: "completed" }),
-  ];
-  const ongoing = makeScheduledIssue({ id: "c", identifier: "A-3", estimate: 4, daysSpent: 2, startDay: 2, endDay: 4, stateType: "started" });
-  const unstarted = makeScheduledIssue({ id: "d", identifier: "A-4", estimate: 6, startDay: 10, endDay: 16 });
+function issue(overrides: Partial<LinearIssue> & { id: string }): LinearIssue {
+  return {
+    identifier: `TEST-${overrides.id}`,
+    title: "Test issue",
+    url: "https://linear.app/test/issue",
+    estimate: null,
+    priority: 0,
+    priorityLabel: "No priority",
+    sortOrder: 0,
+    startedAt: null,
+    completedAt: null,
+    dueDate: null,
+    description: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    state: state("state-todo", "Todo", "unstarted"),
+    team: { id: "team-1" },
+    assignee: null,
+    projectMilestone: null,
+    labels: { nodes: [] },
+    relations: { nodes: [] },
+    ...overrides,
+  } as LinearIssue;
+}
 
-  it("reports elapsed span, not the sum of per-issue days", () => {
-    // Summing daysSpent would give 12; the two bars ran in parallel over 4 calendar days,
-    // which is 4 working days from the Monday start.
-    expect(elapsedWorkingDays(done, MONDAY, [])).toBe(4);
+/** A blocker relation: the issue holds a `blocks` node pointing at the blocked issue. */
+function blocks(blockerId: string, blockedId: string): LinearIssue["relations"] {
+  return { nodes: [{ id: `rel-${blockerId}-${blockedId}`, type: "blocks", relatedIssue: { id: blockedId, identifier: `TEST-${blockedId}` } }] };
+}
+
+const ISSUES: LinearIssue[] = [
+  issue({ id: "todo", state: state("state-todo", "Todo", "unstarted"), dueDate: "2026-03-05" }),
+  issue({ id: "running", state: state("state-started", "In Progress", "started"), dueDate: "2026-02-20" }),
+  issue({ id: "undated", state: state("state-todo", "Todo", "unstarted") }),
+  issue({ id: "blocked", state: state("state-todo", "Todo", "unstarted") }),
+  issue({ id: "blocker", state: state("state-started", "In Progress", "started"), dueDate: "2026-03-20", relations: blocks("blocker", "blocked") }),
+  issue({ id: "done", state: state("state-done", "Done", "completed") }),
+];
+
+/** The number rendered under a count label. */
+function countUnder(label: string): string {
+  const heading = screen.getByText(label);
+  const spans = heading.parentElement?.querySelectorAll("span") ?? [];
+  return spans[1]?.textContent ?? "";
+}
+
+/** Force the phone layout: `useNarrowLayout` reads `window.matchMedia`. */
+function useNarrowLayout(narrow: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: narrow,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+function renderStatus(props: { issues?: readonly LinearIssue[]; doneStateIds?: ReadonlySet<string>; today?: string } = {}) {
+  return render(createElement(GlobalStatus, { issues: ISSUES, doneStateIds: DONE_STATE_IDS, today: TODAY, ...props }));
+}
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("GlobalStatus counts", () => {
+  it("shows the six factual counts of the project's issues", () => {
+    renderStatus();
+
+    expect(countUnder("Open")).toBe("5");
+    expect(countUnder("Completed")).toBe("1");
+    expect(countUnder("Overdue")).toBe("1");
+    expect(countUnder("Due in 14 days")).toBe("1");
+    expect(countUnder("Blocked")).toBe("1");
+    expect(countUnder("No due date")).toBe("2");
   });
 
-  it("gives Global the same elapsed figure as Completed when only done issues have run", () => {
-    const summary = buildMilestoneSummary(done, MONDAY, 2);
-    const globalElapsed = elapsedWorkingDays(done.filter((i) => i.daysSpent != null), MONDAY, []);
-    // Completed renders "<elapsed> / ~<theoretical>" — the Global line must start with the same number.
-    expect(summary.soFarCount).toBe(`2 issues · ${globalElapsed} / ~5 working days`);
+  it("counts a configured terminal state as completed", () => {
+    const merged = issue({ id: "merged", state: state("state-merged", "Merged", "started") });
+
+    const configured = renderStatus({ issues: [merged], doneStateIds: new Set<string>(["state-merged"]) });
+    expect(countUnder("Completed")).toBe("1");
+    configured.unmount();
+
+    // The state name alone never decides: the same issue without its id configured stays open.
+    renderStatus({ issues: [merged], doneStateIds: DONE_STATE_IDS });
+    expect(countUnder("Completed")).toBe("0");
   });
 
-  it("counts an ongoing issue in the elapsed span but not the done-only one", () => {
-    const worked = [...done, ongoing];
-    // The ongoing bar ends on the same day, so the span is unchanged here.
-    expect(elapsedWorkingDays(worked, MONDAY, [])).toBe(4);
-    // A longer ongoing bar does extend it: days 0..8 from a Monday span a weekend,
-    // so 8 calendar days count as 6 working ones.
-    const later = makeScheduledIssue({ id: "e", identifier: "A-5", estimate: 2, daysSpent: 2, startDay: 4, endDay: 8, stateType: "started" });
-    expect(elapsedWorkingDays([...done, later], MONDAY, [])).toBe(6);
+  it("counts the next 14 calendar days, today included", () => {
+    const onTheEdge = issue({ id: "edge", dueDate: "2026-03-15" });
+    const beyond = issue({ id: "beyond", dueDate: "2026-03-16" });
+    const dueToday = issue({ id: "today", dueDate: TODAY });
+
+    renderStatus({ issues: [onTheEdge, beyond, dueToday] });
+    expect(countUnder("Due in 14 days")).toBe("2");
   });
 
-  it("spreads the whole backlog over the configured workers for the theoretical target", () => {
-    const estimated = [...done, ongoing, unstarted];
-    // 5 + 5 + 4 + 6 = 20 points of work over 2 workers → 10 working days.
-    expect(theoreticalWorkingDays(estimated, 2)).toBe(10);
-    // With a single worker there is no parallelism to exploit.
-    expect(theoreticalWorkingDays(estimated, 1)).toBe(20);
+  it("counts only unstarted issues with an open blocker as blocked", () => {
+    const blocker = issue({ id: "blocker", state: state("state-started", "In Progress", "started"), relations: blocks("blocker", "todo") });
+    const todo = issue({ id: "todo", state: state("state-todo", "Todo", "unstarted") });
+    const started = issue({ id: "started", state: state("state-started", "In Progress", "started"), relations: blocks("started", "todo") });
+
+    renderStatus({ issues: [blocker, todo, started] });
+    expect(countUnder("Blocked")).toBe("1");
   });
 
-  it("respects dependencies inside the set rather than dividing blindly", () => {
-    const first = makeScheduledIssue({ id: "x", identifier: "X-1", estimate: 4 });
-    const second = makeScheduledIssue({
-      id: "y", identifier: "X-2", estimate: 4,
-      blockedBy: [{ id: "x", identifier: "X-1", title: "X-1", done: false, relationId: "r1" }],
-    });
-    // A chain cannot be parallelised: 8 days even with 2 workers.
-    expect(theoreticalWorkingDays([first, second], 2)).toBe(8);
+  it("shows no working days, estimate, worker count or schedule verdict", () => {
+    const { container } = renderStatus();
+    const text = container.textContent ?? "";
+
+    expect(text).not.toMatch(/working days/i);
+    expect(text).not.toMatch(/ahead|behind|on time/i);
+    expect(text).not.toMatch(/estimate/i);
+    expect(text).not.toMatch(/worker/i);
+    expect(text).not.toMatch(/remaining|started/i);
+  });
+});
+
+describe("GlobalStatus layouts", () => {
+  it("lays the counts out side by side on a wide layout", () => {
+    useNarrowLayout(false);
+    renderStatus();
+
+    // Every count is on screen without any interaction.
+    expect(screen.getByText("Open")).toBeTruthy();
+    expect(screen.getByText("No due date")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("keeps the counts behind a toggle on a narrow layout and shows them all when expanded", () => {
+    useNarrowLayout(true);
+    renderStatus();
+
+    const toggle = screen.getByRole("button");
+    expect(toggle.textContent).toContain("5 open");
+    expect(toggle.textContent).toContain("1 overdue");
+    expect(screen.queryByText("Open")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(countUnder("Open")).toBe("5");
+    expect(countUnder("Completed")).toBe("1");
+    expect(countUnder("Overdue")).toBe("1");
+    expect(countUnder("Due in 14 days")).toBe("1");
+    expect(countUnder("Blocked")).toBe("1");
+    expect(countUnder("No due date")).toBe("2");
   });
 });
