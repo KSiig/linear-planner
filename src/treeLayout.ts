@@ -1,7 +1,6 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkNode, ElkExtendedEdge } from "elkjs/lib/elk-api";
 import type { ScheduleResult, ScheduledIssue, MilestoneInfo } from "./scheduler";
-import { buildMilestoneSummary, type MilestoneSummaryData } from "./MilestoneHeader";
 
 export const NODE_WIDTH = 168;
 export const NODE_HEIGHT = 56;
@@ -30,7 +29,6 @@ export interface LayoutEdge {
 export interface MilestoneBand {
   milestone: MilestoneInfo | null;
   name: string;
-  summary: MilestoneSummaryData;
   yStart: number;
   yEnd: number;
 }
@@ -61,19 +59,16 @@ function buildParentsAndMilestones(schedule: ScheduleResult) {
   if (noMsIssues.length > 0) milestoneOrder.push({ id: null, name: "No milestone" });
 
   const msIssuesMap = new Map<string | null, ScheduledIssue[]>();
-  const summaries = new Map<string | null, MilestoneSummaryData>();
   for (const ms of milestoneOrder) {
     const msIssues = schedule.issues.filter((i) => (i.milestone?.id ?? null) === ms.id);
     msIssuesMap.set(ms.id, msIssues);
-    // Per-milestone: no ahead/behind status (see buildMilestoneSummary).
-    summaries.set(ms.id, buildMilestoneSummary(msIssues, schedule.startDate, schedule.configuredWorkers, schedule.cycles, false));
   }
 
-  return { parentsOf, milestoneOrder, msIssuesMap, summaries };
+  return { parentsOf, milestoneOrder, msIssuesMap };
 }
 
 async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayoutResult> {
-  const { parentsOf, milestoneOrder, msIssuesMap, summaries } = buildParentsAndMilestones(schedule);
+  const { parentsOf, milestoneOrder, msIssuesMap } = buildParentsAndMilestones(schedule);
   const issueIdSet = new Set(schedule.issues.map((i) => i.id));
 
   // Partition each issue by its milestone's index. Smaller partition = earlier (higher up).
@@ -172,7 +167,6 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
     const msIssues = msIssuesMap.get(ms.id) ?? [];
     if (msIssues.length === 0) continue;
     const milestone = ms.id ? schedule.milestones.find((m) => m.id === ms.id) ?? null : null;
-    const summary = summaries.get(ms.id)!;
     let maxY = prevEnd;
     for (const issue of msIssues) {
       const node = nodeMap.get(issue.id);
@@ -180,7 +174,7 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
       maxY = Math.max(maxY, node.y + NODE_HEIGHT);
     }
     const yEnd = maxY + BAND_PADDING;
-    bands.push({ milestone, name: ms.name, summary, yStart: prevEnd, yEnd });
+    bands.push({ milestone, name: ms.name, yStart: prevEnd, yEnd });
     prevEnd = yEnd;
   }
 
@@ -199,7 +193,7 @@ export function layoutDependencyTree(schedule: ScheduleResult): Promise<TreeLayo
  * No cross-milestone edges are drawn — each milestone's tree stands on its own.
  */
 export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult): Promise<TreeLayoutResult> {
-  const { parentsOf, milestoneOrder, msIssuesMap, summaries } = buildParentsAndMilestones(schedule);
+  const { parentsOf, milestoneOrder, msIssuesMap } = buildParentsAndMilestones(schedule);
 
   const BAND_TOP_PAD = 8;
   const BAND_BOTTOM_PAD = 8;
@@ -213,13 +207,12 @@ export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult)
 
   for (const ms of milestoneOrder) {
     const msIssues = msIssuesMap.get(ms.id) ?? [];
-    const summary = summaries.get(ms.id)!;
     const milestone = ms.id ? schedule.milestones.find((m) => m.id === ms.id) ?? null : null;
     const yStart = cursor;
 
     if (msIssues.length === 0) {
       const yEnd = yStart + EMPTY_BAND_H;
-      bands.push({ milestone, name: ms.name, summary, yStart, yEnd });
+      bands.push({ milestone, name: ms.name, yStart, yEnd });
       cursor = yEnd;
       continue;
     }
@@ -291,7 +284,7 @@ export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult)
     }
 
     const yEnd = yStart + BAND_TOP_PAD + (layout.height ?? 0) + BAND_BOTTOM_PAD;
-    bands.push({ milestone, name: ms.name, summary, yStart, yEnd });
+    bands.push({ milestone, name: ms.name, yStart, yEnd });
     cursor = yEnd;
     maxWidth = Math.max(maxWidth, (layout.width ?? 0) + PADDING * 2);
   }

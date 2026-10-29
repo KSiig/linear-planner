@@ -3,10 +3,10 @@
 const GLOBAL_STORAGE_KEY = "linear-planner";
 export const DISPLAY_STORAGE_KEY = `${GLOBAL_STORAGE_KEY}:display`;
 
-export type Mode = "workers" | "tree" | "overview";
+/** The views the planner can show. */
+export type Mode = "dates" | "tree" | "overview";
 
 export interface ProjectSettings {
-  numWorkers: number;
   mode: Mode;
   /** When mode === "tree", whether to draw arrows for blockers across milestones. */
   drawCrossMilestoneDeps: boolean;
@@ -14,27 +14,16 @@ export interface ProjectSettings {
   includeDoneIssuesTree: boolean;
   /** Whether the global tree view includes done issues. */
   includeDoneIssuesTreeGlobal: boolean;
-  showWeekends: boolean;
-  showHolidays: boolean;
-  showCooldown: boolean;
-  /** Draw unstarted issues that have no due date on the timeline, hatched, packed from today. */
-  showCapacityForecast: boolean;
-  startStatusName: string;
-  endStatusName: string;
+  /** The workflow state ids the project treats as terminal. */
+  doneStateIds: string[];
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
-  numWorkers: 2,
-  mode: "workers",
+  mode: "dates",
   drawCrossMilestoneDeps: false,
   includeDoneIssuesTree: true,
   includeDoneIssuesTreeGlobal: true,
-  showWeekends: false,
-  showHolidays: true,
-  showCooldown: true,
-  showCapacityForecast: false,
-  startStatusName: "",
-  endStatusName: "",
+  doneStateIds: [],
 };
 
 export function loadProjectSettings(urlProjectId?: string | null): ProjectSettings {
@@ -43,9 +32,10 @@ export function loadProjectSettings(urlProjectId?: string | null): ProjectSettin
     const raw = display ?? (urlProjectId ? localStorage.getItem(`${GLOBAL_STORAGE_KEY}:${urlProjectId}`) : null);
     if (!raw) return DEFAULT_PROJECT_SETTINGS;
     const data = JSON.parse(raw);
-    // Migration: old "treeIndividual" → "tree" with cross-milestone deps off.
+    // Migration: the old "workers" mode is the "dates" view now — it loads as "dates".
+    // Old "treeIndividual" → "tree" with cross-milestone deps off.
     // A stored treeGlobal mode loads as tree. Do not write treeGlobal.
-    let mode: Mode = "workers";
+    let mode: Mode = "dates";
     let drawCrossMilestoneDeps = false;
     if (data.mode === "tree" || data.mode === "treeGlobal") { mode = "tree"; drawCrossMilestoneDeps = data.mode === "tree" ? (data.drawCrossMilestoneDeps ?? true) : false; }
     else if (data.mode === "treeIndividual") { mode = "tree"; drawCrossMilestoneDeps = false; }
@@ -53,17 +43,13 @@ export function loadProjectSettings(urlProjectId?: string | null): ProjectSettin
     // Migration: a single `includeDoneIssues` value (older shape) is copied to both per-view flags.
     const legacyIncludeDone = data.includeDoneIssues;
     return {
-      numWorkers: typeof data.numWorkers === "number" && data.numWorkers >= 1 ? data.numWorkers : 2,
       mode,
       drawCrossMilestoneDeps,
       includeDoneIssuesTree: data.includeDoneIssuesTree ?? legacyIncludeDone ?? true,
       includeDoneIssuesTreeGlobal: data.includeDoneIssuesTreeGlobal ?? legacyIncludeDone ?? true,
-      showWeekends: data.showWeekends ?? false,
-      showHolidays: data.showHolidays ?? true,
-      showCooldown: data.showCooldown ?? true,
-      showCapacityForecast: data.showCapacityForecast ?? false,
-      startStatusName: typeof data.startStatusName === "string" ? data.startStatusName : "",
-      endStatusName: typeof data.endStatusName === "string" ? data.endStatusName : "",
+      doneStateIds: Array.isArray(data.doneStateIds)
+        ? data.doneStateIds.filter((id: unknown): id is string => typeof id === "string")
+        : [],
     };
   } catch {
     return DEFAULT_PROJECT_SETTINGS;
@@ -71,8 +57,7 @@ export function loadProjectSettings(urlProjectId?: string | null): ProjectSettin
 }
 
 export function saveProjectSettings(s: ProjectSettings) {
-  const mode = (s.mode as string) === "treeGlobal" ? "tree" : s.mode;
-  localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({ ...s, mode }));
+  localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify(s));
 }
 
 /** Legacy key — used pre-OAuth. Removed at startup to avoid stale state. */

@@ -3,10 +3,10 @@ import type { ScheduleResult, ScheduledIssue } from "./scheduler";
 import { dayToDate, formatDate, isBankHoliday, formatParisTimeOfDay, isAfterThreshold } from "./workingDays";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon, PriorityIcon, AssigneeAvatar, DurationBadge } from "./CardIcons";
-import { MilestoneHeader, MilestoneBandLabel, buildMilestoneSummary, type MilestoneSummaryData } from "./MilestoneHeader";
+import { MilestoneHeader, MilestoneBandLabel } from "./MilestoneHeader";
 import { Legend } from "./Legend";
 import { useNarrowLayout } from "./useNarrowLayout";
-import { BLOCKED_STRIPE, NO_ESTIMATE_BG, DONE_STRIPE, FORECAST_HATCH, ongoingStatusBg, isBlockedDisplay } from "./cardStyle";
+import { BLOCKED_STRIPE, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay } from "./cardStyle";
 import {
   ROW_HEIGHT, ROW_GAP, CYCLE_ROW_HEIGHT, DATE_ROW_HEIGHT, HEADER_HEIGHT,
   DAY_WIDTH, LABEL_WIDTH,
@@ -38,7 +38,6 @@ interface MilestoneGroup {
   milestoneId: string | null;
   milestoneName: string;
   workerRows: Array<{ worker: number; issues: ScheduledIssue[] }>;
-  summary: MilestoneSummaryData;
 }
 
 interface GanttChartProps {
@@ -46,10 +45,9 @@ interface GanttChartProps {
   showWeekends: boolean;
   showHolidays: boolean;
   showCooldown: boolean;
-  showCapacityForecast: boolean;
 }
 
-export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown, showCapacityForecast }: GanttChartProps) {
+export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown }: GanttChartProps) {
   const narrow = useNarrowLayout();
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltipInfo, setTooltipInfo] = useState<{ issue: ScheduledIssue; x: number; y: number } | null>(null);
@@ -58,11 +56,11 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown,
 
   const numWorkers = useMemo(() => Math.max(...schedule.issues.map((i) => i.worker), -1) + 1, [schedule]);
 
-  // Bars that belong on the date axis. Undated unstarted work stays off it unless the
-  // capacity forecast is on.
+  // Bars that belong on the date axis. Undated unstarted work stays off it: the
+  // capacity forecast is gone.
   const axisIssues = useMemo(
-    () => (showCapacityForecast ? schedule.issues : schedule.issues.filter((issue) => !issue.isCapacityForecast)),
-    [schedule.issues, showCapacityForecast],
+    () => schedule.issues.filter((issue) => !issue.isCapacityForecast),
+    [schedule.issues],
   );
 
   // Compute the set of day ranges (cycles & cooldowns) that contain no on-axis issues,
@@ -108,24 +106,24 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown,
     for (const ms of schedule.milestones) {
       const msIssues = schedule.issues.filter((i) => i.milestone?.id === ms.id);
       if (msIssues.length === 0) continue;
-      const onAxis = msIssues.filter((issue) => showCapacityForecast || !issue.isCapacityForecast);
+      const onAxis = msIssues.filter((issue) => !issue.isCapacityForecast);
       if (onAxis.length === 0) continue;
-      groups.push({ milestoneId: ms.id, milestoneName: ms.name, workerRows: buildWorkerRows(onAxis), summary: buildMilestoneSummary(msIssues, schedule.startDate, schedule.configuredWorkers, schedule.cycles, false, showCapacityForecast) });
+      groups.push({ milestoneId: ms.id, milestoneName: ms.name, workerRows: buildWorkerRows(onAxis) });
     }
 
     const noMsIssues = schedule.issues.filter((i) => !i.milestone);
     if (noMsIssues.length > 0) {
-      const onAxis = noMsIssues.filter((issue) => showCapacityForecast || !issue.isCapacityForecast);
+      const onAxis = noMsIssues.filter((issue) => !issue.isCapacityForecast);
       if (onAxis.length > 0) {
-        groups.push({ milestoneId: null, milestoneName: "No milestone", workerRows: buildWorkerRows(onAxis), summary: buildMilestoneSummary(noMsIssues, schedule.startDate, schedule.configuredWorkers, schedule.cycles, false, showCapacityForecast) });
+        groups.push({ milestoneId: null, milestoneName: "No milestone", workerRows: buildWorkerRows(onAxis) });
       }
     }
 
     return groups;
-  }, [schedule, numWorkers, showCapacityForecast]);
+  }, [schedule, numWorkers]);
 
   // Ceil guard at the allocation site: a fractional length makes `new Array()` throw.
-  const totalCalendarDays = timelineSpanDays(schedule.issues, schedule.cycles, schedule.todayOffset, showCapacityForecast, schedule.totalDays);
+  const totalCalendarDays = timelineSpanDays(schedule.issues, schedule.cycles, schedule.todayOffset, false, schedule.totalDays);
 
   // Build all calendar day info
   const allDays = useMemo(() => {
@@ -373,7 +371,7 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown,
                       gap: 1,
                     }}
                   >
-                    <MilestoneHeader name={group.milestoneName} summary={group.summary} />
+                    <MilestoneHeader name={group.milestoneName} />
                   </div>
                 </div>
               );
@@ -523,7 +521,7 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown,
                   {narrow && (
                     <div style={{ width: chartWidth, borderTop: "2px solid var(--iteration-line)", background: "var(--surface)" }}>
                       <div style={{ position: "sticky", left: 0, width: "fit-content", maxWidth: "100%", padding: "7px 10px", fontSize: 12, fontWeight: 700, color: "var(--iteration-line)", whiteSpace: "nowrap" }}>
-                        <MilestoneBandLabel name={group.milestoneName} summary={group.summary} />
+                        <MilestoneBandLabel name={group.milestoneName} />
                       </div>
                     </div>
                   )}
@@ -579,10 +577,9 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown,
                               width: barWidth,
                               height: ROW_HEIGHT - 4,
                               background: [
-                                isForecast ? FORECAST_HATCH : null,
                                 isBlocked ? BLOCKED_STRIPE : null,
                                 issue.done ? DONE_STRIPE : null,
-                                ongoingStatusBg(issue.stateType, issue.done, issue.stateColor) ?? (!issue.hasEstimate ? NO_ESTIMATE_BG : "var(--surface-hover)"),
+                                ongoingStatusBg(issue.stateType, issue.done, issue.stateColor) ?? "var(--surface-hover)",
                               ].filter(Boolean).join(", "),
                               border: isForecast ? "1px dashed var(--text-muted)" : "1px solid var(--border)",
                               borderRadius: 4,
@@ -701,9 +698,9 @@ export function GanttChart({ schedule, showWeekends, showHolidays, showCooldown,
         )}
       </div>
 
-      <UndatedList issues={schedule.issues} milestones={schedule.milestones} showCapacityForecast={showCapacityForecast} />
+      <UndatedList issues={schedule.issues} milestones={schedule.milestones} />
 
-      <Legend issues={schedule.issues} showCapacityForecast={showCapacityForecast} />
+      <Legend issues={schedule.issues} />
     </div>
   );
 }
