@@ -6,17 +6,8 @@ const LINEAR_REVOKE_URL = "https://api.linear.app/oauth/revoke";
 const AUTH_STORAGE_KEY = "linear-planner-auth";
 const PKCE_STORAGE_KEY = "linear-planner-pkce";
 const STATE_STORAGE_KEY = "linear-planner-oauth-state";
-const WRITE_ENABLED_KEY = "linear-planner-write-enabled";
 const AUTO_REFRESH_KEY = "linear-planner-auto-refresh";
-
-/** Whether the user has opted into write-scoped OAuth (needed for drag-to-block actions). */
-export function isWriteEnabled(): boolean {
-  return localStorage.getItem(WRITE_ENABLED_KEY) === "true";
-}
-
-export function setWriteEnabled(v: boolean): void {
-  localStorage.setItem(WRITE_ENABLED_KEY, String(v));
-}
+const OAUTH_SCOPES = "read,write";
 
 /** Whether the app should re-fetch the latest Linear data when the tab regains focus. Defaults on. */
 export function isAutoRefreshEnabled(): boolean {
@@ -25,10 +16,6 @@ export function isAutoRefreshEnabled(): boolean {
 
 export function setAutoRefreshEnabled(v: boolean): void {
   localStorage.setItem(AUTO_REFRESH_KEY, String(v));
-}
-
-function getScopes(): string {
-  return isWriteEnabled() ? "read,write" : "read";
 }
 
 interface AuthTokens {
@@ -85,12 +72,101 @@ export async function startLogin(): Promise<void> {
   url.searchParams.set("client_id", getClientId());
   url.searchParams.set("redirect_uri", getRedirectUri());
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", getScopes());
+  url.searchParams.set("scope", OAUTH_SCOPES);
   url.searchParams.set("code_challenge", codeChallenge);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("state", state);
 
   window.location.href = url.toString();
+}
+
+/**
+ * Whether an error is Linear's OAuth scope rejection.
+ *
+ * Linear reports a missing write grant as the GraphQL error
+ * `Invalid scope: write required`, with `extensions.code` set to `FORBIDDEN`.
+ * HTTP 400 and 403 responses can carry that same standard `errors` array. The
+ * app's GraphQL helper flattens successful HTTP responses to their error
+ * messages, so the exact scope message is also accepted on its own.
+ */
+export function isOAuthScopeError(error: unknown): boolean {
+  const status = getErrorStatus(error);
+  const graphQLErrors = getGraphQLErrors(error);
+
+  if (graphQLErrors.length > 0) {
+    if (status !== undefined && status !== 200 && status !== 400 && status !== 403) return false;
+    return graphQLErrors.some(isScopeErrorEntry);
+  }
+
+  const message = getErrorMessage(error);
+  if (!message) return false;
+  if (status !== undefined && status !== 200 && status !== 400 && status !== 403) return false;
+
+  const embeddedResponse = message.match(/^Linear API error (\d{3}):\s*([\s\S]*)$/);
+  if (!embeddedResponse) return isScopeMessage(message);
+
+  const embeddedStatus = Number(embeddedResponse[1]);
+  const body = embeddedResponse[2];
+  if (embeddedStatus !== 400 && embeddedStatus !== 403) return false;
+
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const errors = getGraphQLErrors(parsed);
+    if (errors.length > 0) return errors.some(isScopeErrorEntry);
+    if (isRecord(parsed) && typeof parsed.error === "string" && isScopeMessage(parsed.error)) return true;
+  } catch {
+    // The API can also return a plain-text error body.
+  }
+
+  return isScopeMessage(body);
+}
+
+/**
+ * Start a fresh OAuth authorization with read and write access after a scope
+ * failure. This helper never retries a mutation, loops, or clears the current
+ * tokens; callers must invoke it from an explicit user action.
+ */
+export async function reauthorizeWithWriteScope(error: unknown): Promise<void> {
+  if (!isOAuthScopeError(error)) return;
+  await startLogin();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getErrorMessage(value: unknown): string | null {
+  if (value instanceof Error) return value.message;
+  if (isRecord(value) && typeof value.message === "string") return value.message;
+  return null;
+}
+
+function getErrorStatus(value: unknown): number | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.status === "number") return value.status;
+  if (isRecord(value.response) && typeof value.response.status === "number") return value.response.status;
+  return undefined;
+}
+
+function getGraphQLErrors(value: unknown): unknown[] {
+  if (!isRecord(value)) return [];
+  if (Array.isArray(value.errors)) return value.errors;
+  if (isRecord(value.response) && Array.isArray(value.response.errors)) return value.response.errors;
+  return [];
+}
+
+function isScopeMessage(message: string): boolean {
+  return /Invalid scope:\s*`?[a-z0-9:_-]+`?\s+required\b/i.test(message);
+}
+
+function isScopeErrorEntry(entry: unknown): boolean {
+  const message = getErrorMessage(entry);
+  if (!message || !isScopeMessage(message)) return false;
+
+  if (!isRecord(entry) || !isRecord(entry.extensions)) return true;
+  const codes = [entry.extensions.code, entry.extensions.type].filter((code): code is string => typeof code === "string");
+  if (codes.length === 0) return true;
+  return codes.some((code) => code.toUpperCase() === "FORBIDDEN");
 }
 
 export async function handleOAuthCallback(code: string, state: string): Promise<void> {

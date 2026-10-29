@@ -2,20 +2,27 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
+import { reauthorizeWithWriteScope } from "./auth";
+import { deleteIssueRelation } from "./linear";
+import type { LinearIssue } from "./linear";
+import { fetchScopedIssues } from "./applyPlannerQuery";
 import App from "./App";
 
-vi.mock("./auth", () => ({
-  startLogin: vi.fn(),
-  handleOAuthCallback: vi.fn(),
-  getCallbackPath: () => "/callback",
-  isAuthenticated: () => true,
-  clearTokens: vi.fn(),
-  logout: vi.fn(),
-  isWriteEnabled: () => false,
-  setWriteEnabled: vi.fn(),
-  isAutoRefreshEnabled: () => false,
-  setAutoRefreshEnabled: vi.fn(),
-}));
+vi.mock("./auth", async () => {
+  const actual = await vi.importActual<typeof import("./auth")>("./auth");
+  return {
+    ...actual,
+    startLogin: vi.fn(),
+    handleOAuthCallback: vi.fn(),
+    getCallbackPath: () => "/callback",
+    isAuthenticated: () => true,
+    clearTokens: vi.fn(),
+    logout: vi.fn(),
+    isAutoRefreshEnabled: () => false,
+    setAutoRefreshEnabled: vi.fn(),
+    reauthorizeWithWriteScope: vi.fn(),
+  };
+});
 
 vi.mock("./linear", () => ({
   fetchProjects: vi.fn(async () => [{ id: "p1", name: "P", teams: { nodes: [] }, hasIssues: true }]),
@@ -29,26 +36,7 @@ vi.mock("./linear", () => ({
 }));
 
 vi.mock("./applyPlannerQuery", () => ({
-  fetchScopedIssues: vi.fn(async () => [{
-    id: "i1",
-    identifier: "ABC-1",
-    title: "Ship the dates view",
-    url: "https://linear.app/example/issue/ABC-1",
-    priority: 2,
-    priorityLabel: "High",
-    sortOrder: 1,
-    startedAt: null,
-    completedAt: null,
-    dueDate: "2026-11-02",
-    description: null,
-    updatedAt: "2026-10-01T00:00:00.000Z",
-    state: { id: "s1", name: "Todo", type: "unstarted", color: "#888888", position: 1 },
-    team: { id: "t1" },
-    assignee: null,
-    projectMilestone: null,
-    labels: { nodes: [] },
-    relations: { nodes: [] },
-  }]),
+  fetchScopedIssues: vi.fn(async () => []),
   fetchScopedById: vi.fn(async () => []),
   filterMatchingIssues: (issues: unknown[]) => issues,
   projectIdsToLoad: () => ["p1"],
@@ -63,12 +51,39 @@ vi.mock("./views/filters/ViewMenu", () => ({
   ),
 }));
 
+const issueFixture: LinearIssue = {
+  id: "i1",
+  identifier: "ABC-1",
+  title: "Ship the dates view",
+  url: "https://linear.app/example/issue/ABC-1",
+  priority: 2,
+  priorityLabel: "High",
+  sortOrder: 1,
+  startedAt: null,
+  completedAt: null,
+  dueDate: "2026-11-02",
+  description: null,
+  updatedAt: "2026-10-01T00:00:00.000Z",
+  state: { id: "s1", name: "Todo", type: "unstarted", color: "#888888", position: 1 },
+  team: { id: "t1" },
+  assignee: null,
+  projectMilestone: null,
+  labels: { nodes: [] },
+  relations: { nodes: [] },
+};
+
 beforeEach(() => {
   localStorage.clear();
+  vi.clearAllMocks();
+  vi.mocked(fetchScopedIssues).mockResolvedValue([issueFixture]);
+  vi.mocked(deleteIssueRelation).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(window, "alert");
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 function tabButtons(): HTMLElement[] {
@@ -106,5 +121,46 @@ describe("display tabs", () => {
       expect(screen.queryByText(label)).toBeNull();
     }
     expect(screen.queryByRole("checkbox", { name: /Capacity forecast/ })).toBeNull();
+  });
+
+  it("keeps dependency editing available and reconnects after a scope failure", async () => {
+    const blockedIssue: LinearIssue = {
+      ...issueFixture,
+      id: "i2",
+      identifier: "ABC-2",
+      title: "Blocked issue",
+      relations: { nodes: [] },
+    };
+    const blockerIssue: LinearIssue = {
+      ...issueFixture,
+      relations: {
+        nodes: [{ id: "rel-1", type: "blocks", relatedIssue: { id: "i2", identifier: "ABC-2" } }],
+      },
+    };
+    vi.mocked(fetchScopedIssues).mockResolvedValue([blockerIssue, blockedIssue]);
+    vi.mocked(deleteIssueRelation).mockRejectedValue(new Error("Invalid scope: write required"));
+    const alertSpy = vi.fn();
+    Object.defineProperty(window, "alert", { configurable: true, value: alertSpy });
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Tree" }));
+
+    const blockedTitle = await screen.findByText("Blocked issue");
+    const blockedCard = blockedTitle.closest("[data-card]") as HTMLElement;
+    expect(blockedCard.getAttribute("draggable")).toBe("true");
+
+    fireEvent.contextMenu(blockedCard);
+    fireEvent.click(await screen.findByRole("button", { name: /Remove blocked by issue: ABC-1/ }));
+
+    const reconnect = await screen.findByRole("button", { name: "Reconnect to update Linear" });
+    fireEvent.click(reconnect);
+
+    expect(reauthorizeWithWriteScope).toHaveBeenCalledTimes(1);
+    expect(reauthorizeWithWriteScope).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Invalid scope: write required" }),
+    );
+    expect(alertSpy).toHaveBeenCalled();
   });
 });

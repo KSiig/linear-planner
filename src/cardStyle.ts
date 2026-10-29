@@ -43,13 +43,12 @@ export function isBlockedDisplay(issue: Pick<TreeIssue, "stateType" | "done" | "
 
 /**
  * Whether right-clicking the card should open the "remove blocker" context menu.
- * Only relevant when writes are enabled and the issue actually has blockers to remove.
+ * The issue must have at least one blocker to remove.
  */
 export function canShowRemoveBlockerMenu(
   issue: Pick<TreeIssue, "blockedBy">,
-  writeEnabled: boolean,
 ): boolean {
-  return writeEnabled && issue.blockedBy.length > 0;
+  return issue.blockedBy.length > 0;
 }
 
 /**

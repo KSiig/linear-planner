@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties } from "react";
 import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
 import type { LinearProject, LinearIssue, LinearMilestone, LinearWorkflowState } from "./linear";
-import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isWriteEnabled, setWriteEnabled, isAutoRefreshEnabled, setAutoRefreshEnabled } from "./auth";
+import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isAutoRefreshEnabled, setAutoRefreshEnabled, isOAuthScopeError, reauthorizeWithWriteScope } from "./auth";
 import { DependencyTree } from "./DependencyTree";
 import { DeadlineTimeline } from "./DeadlineTimeline";
 import { BASE_PATH, getProjectIdFromUrl, navigateToProject } from "./routing";
@@ -86,7 +86,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(true);
-  const [writeEnabled, setWriteEnabledState] = useState(isWriteEnabled());
+  const [scopeError, setScopeError] = useState<unknown>(null);
   const [autoRefresh, setAutoRefreshState] = useState(isAutoRefreshEnabled());
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -98,10 +98,10 @@ export default function App() {
   const [projectMilestones, setProjectMilestones] = useState<LinearMilestone[]>([]);
   const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
 
-  const doneStateIdsRef = useRef(doneStateIds);
-  doneStateIdsRef.current = doneStateIds;
   const projectsRef = useRef(projects);
-  projectsRef.current = projects;
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
   const loadGen = useRef(0);
 
   // Timestamp of the last data load (manual or auto), used to throttle auto-refresh.
@@ -175,8 +175,8 @@ export default function App() {
 
     if (!isAuthenticated()) {
       localStorage.removeItem(LEGACY_STORAGE_KEY);
-      setRestoring(false);
-      return;
+      const timeoutId = window.setTimeout(() => setRestoring(false), 0);
+      return () => window.clearTimeout(timeoutId);
     }
 
     (async () => {
@@ -303,7 +303,9 @@ export default function App() {
   // we already (auto- or manually) refreshed within the last 5 minutes — focus events fire
   // constantly while working, and re-fetching every time is more annoying than useful.
   const loadingRef = useRef(loading);
-  loadingRef.current = loading;
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
   useEffect(() => {
     if (!connected || !autoRefresh) return;
     const refresh = () => {
@@ -334,23 +336,12 @@ export default function App() {
     navigateToProject(null);
   }, []);
 
-  const handleToggleWriteEnabled = useCallback(async (next: boolean) => {
-    if (next === writeEnabled) return;
-    const msg = next
-      ? "Enable write access? You'll be redirected to Linear to re-authorize with read+write scope."
-      : "Switch back to read-only? You'll be redirected to Linear to re-authorize.";
-    if (!window.confirm(msg)) return;
-    setWriteEnabled(next);
-    setWriteEnabledState(next);
-    await logout();
-    startLogin();
-  }, [writeEnabled]);
-
   const handleCreateBlockingRelation = useCallback(async (blockerId: string, blockedId: string) => {
     let relationId: string;
     try {
       relationId = await createBlockingRelation(blockerId, blockedId);
     } catch (err) {
+      if (isOAuthScopeError(err)) setScopeError(err);
       // The write failed — fall back to a full refetch so the tree reflects the true state.
       await loadProject();
       throw err;
@@ -365,6 +356,7 @@ export default function App() {
     try {
       await deleteIssueRelation(relationId);
     } catch (err) {
+      if (isOAuthScopeError(err)) setScopeError(err);
       // The delete failed — fall back to a full refetch so the tree reflects the true state.
       await loadProject();
       throw err;
@@ -465,13 +457,6 @@ export default function App() {
         <input type="checkbox" checked={autoRefresh} onChange={(e) => handleToggleAutoRefresh(e.target.checked)} />
         Auto-refresh
       </label>
-      <label
-        style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}
-        title="Allow drag-and-drop dependency edits (requires Linear write scope)"
-      >
-        <input type="checkbox" checked={writeEnabled} onChange={(e) => handleToggleWriteEnabled(e.target.checked)} />
-        Allow writes
-      </label>
       <div style={{ height: 1, background: "var(--border)" }} />
       <button
         onClick={() => { setSettingsOpen(false); handleDisconnect(); }}
@@ -562,6 +547,25 @@ export default function App() {
           </>
         )}
       </header>
+      {connected && scopeError !== null && (
+        <div
+          role="alert"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+            padding: "10px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface)",
+            color: "var(--text)", fontSize: 13,
+          }}
+        >
+          <span>Your Linear session needs write access to make changes.</span>
+          <button
+            type="button"
+            onClick={() => { void reauthorizeWithWriteScope(scopeError); }}
+            style={{ ...buttonStyle, padding: "6px 12px", fontSize: 13 }}
+          >
+            Reconnect to update Linear
+          </button>
+        </div>
+      )}
       {connected && (
         <FilterChips
           query={plannerQuery}
@@ -584,7 +588,7 @@ export default function App() {
             <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Connect to Linear</h2>
             <p style={{ color: "var(--text-muted)", marginBottom: 24, fontSize: 14 }}>
               Sign in with your Linear account to get started.<br />
-              <span style={{ fontSize: 12, display: "block", marginTop: 4 }}>Read-only access to your workspace projects.</span>
+              <span style={{ fontSize: 12, display: "block", marginTop: 4 }}>Read and write access to your workspace projects.</span>
             </p>
             {error && <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 16 }}>{error}</p>}
             <button
@@ -663,7 +667,6 @@ export default function App() {
                 today={today}
                 variant={drawCrossMilestoneDeps ? "split" : "individual"}
                 includeDone={includeDoneIssuesTree}
-                writeEnabled={writeEnabled}
                 onCreateBlockingRelation={handleCreateBlockingRelation}
                 onDeleteRelation={handleDeleteRelation}
               />
