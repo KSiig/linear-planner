@@ -307,9 +307,9 @@ export async function layoutDependencyTreePerMilestone(
         from,
         to,
         sections: elkEdge.sections?.map((s) => ({
-          startPoint: { x: (s.startPoint?.x ?? 0) + PADDING, y: (s.startPoint?.y ?? 0) + PADDING },
-          endPoint: { x: (s.endPoint?.x ?? 0) + PADDING, y: (s.endPoint?.y ?? 0) + PADDING },
-          bendPoints: s.bendPoints?.map((bp) => ({ x: (bp.x ?? 0) + PADDING, y: (bp.y ?? 0) + PADDING })),
+          startPoint: { x: (s.startPoint?.x ?? 0) + PADDING, y: (s.startPoint?.y ?? 0) + dy },
+          endPoint: { x: (s.endPoint?.x ?? 0) + PADDING, y: (s.endPoint?.y ?? 0) + dy },
+          bendPoints: s.bendPoints?.map((bp) => ({ x: (bp.x ?? 0) + PADDING, y: (bp.y ?? 0) + dy })),
         })),
       });
     }
