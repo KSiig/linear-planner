@@ -310,6 +310,20 @@ describe("getProjectFactsSummary", () => {
     expect(summary.dueSoon).toBe(0);
   });
 
+  it("does not count a done-by-id issue as due soon", () => {
+    // "Merged" is a started-type state, so the issue stays open by state type
+    // while it is done by its configured state id.
+    const merged = issue({
+      id: "merged",
+      dueDate: "2026-03-10",
+      state: state("state-merged", "Merged", "started"),
+    });
+    const summary = getProjectFactsSummary([merged], DONE_STATE_IDS, today);
+    expect(summary.dueSoon).toBe(0);
+    expect(summary.completed).toBe(1);
+    expect(summary.open).toBe(1);
+  });
+
   it("counts unstarted issues with an open blocker", () => {
     expect(getProjectFactsSummary(issues, DONE_STATE_IDS, today).blocked).toBe(1);
   });
@@ -336,6 +350,20 @@ describe("getProjectFactsSummary", () => {
 
   it("counts open issues without a due date", () => {
     expect(getProjectFactsSummary(issues, DONE_STATE_IDS, today).noDueDate).toBe(1);
+  });
+
+  it("does not count a done-by-id issue as without a due date", () => {
+    // "Merged" is a started-type state, so the issue stays open by state type
+    // while it is done by its configured state id.
+    const merged = issue({
+      id: "merged",
+      dueDate: null,
+      state: state("state-merged", "Merged", "started"),
+    });
+    const summary = getProjectFactsSummary([merged], DONE_STATE_IDS, today);
+    expect(summary.noDueDate).toBe(0);
+    expect(summary.completed).toBe(1);
+    expect(summary.open).toBe(1);
   });
 
   it("reports no counts for an empty project", () => {

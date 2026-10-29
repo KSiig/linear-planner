@@ -233,11 +233,11 @@ export interface ProjectFactsSummary {
   completed: number;
   /** Open, not-done issues whose due date already passed. */
   overdue: number;
-  /** Open issues due within the next 14 calendar days, today included. */
+  /** Open, not-done issues due within the next 14 calendar days, today included. */
   dueSoon: number;
   /** Issues that are unstarted or backlog, are not done, and have an open blocker. */
   blocked: number;
-  /** Open issues without a due date. */
+  /** Open, not-done issues without a due date. */
   noDueDate: number;
 }
 
@@ -261,7 +261,10 @@ export function getProjectFactsSummary(
   let noDueDate = 0;
 
   for (const issue of issues) {
-    if (isOpenIssue(issue)) {
+    // A done issue is not due soon and has no missing due date, even when its
+    // state type leaves it open by type — a custom terminal state such as
+    // "Merged" is a started-type state.
+    if (isOpenIssue(issue) && !isDoneIssue(issue, doneStateIds)) {
       if (!issue.dueDate) {
         noDueDate += 1;
       } else {
