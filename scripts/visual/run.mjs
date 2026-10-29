@@ -397,20 +397,6 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     if (await undated.getByText('SII-93').count() !== 0) {
       fail('in-progress SII-93 was listed under No due date');
     }
-    const forecastCheckbox = page.getByRole('checkbox', { name: 'Capacity forecast' });
-    const forecastChip = page.getByRole('button', { name: 'Forecast', exact: true });
-    if (await forecastCheckbox.count()) {
-      await forecastCheckbox.check();
-    } else {
-      await forecastChip.click();
-    }
-    await undated.getByText('Hatched bars on the timeline are a capacity forecast, not a deadline.').waitFor({ state: 'visible', timeout: 15_000 });
-    if (await forecastCheckbox.count()) {
-      await forecastCheckbox.uncheck();
-    } else {
-      await forecastChip.click();
-    }
-    await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
     await assertHeaderChrome(page);
     if (surface.state === 'filters') {
       await page.getByRole('button', { name: 'Filters', exact: true }).click();

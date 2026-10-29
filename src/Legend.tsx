@@ -2,15 +2,14 @@ import { useMemo } from "react";
 import type { ScheduledIssue } from "./scheduler";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon } from "./CardIcons";
-import { BLOCKED_STRIPE, NO_ESTIMATE_BG, DONE_STRIPE, FORECAST_HATCH } from "./cardStyle";
+import { BLOCKED_STRIPE, DONE_STRIPE } from "./cardStyle";
 import { useNarrowLayout } from "./useNarrowLayout";
 
 interface LegendProps {
   issues: ScheduledIssue[];
-  showCapacityForecast?: boolean;
 }
 
-export function Legend({ issues, showCapacityForecast = false }: LegendProps) {
+export function Legend({ issues }: LegendProps) {
   const narrow = useNarrowLayout();
   const statuses = useMemo(() => {
     const seen = new Map<string, { name: string; type: string; color: string; progress: number }>();
@@ -38,16 +37,6 @@ export function Legend({ issues, showCapacityForecast = false }: LegendProps) {
           <span>{s.name}</span>
         </div>
       ))}
-      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <div style={{ width: 24, height: 12, borderRadius: 2, background: NO_ESTIMATE_BG, border: "1px solid var(--border)" }} />
-        <span>No estimate (default 3d)</span>
-      </div>
-      {showCapacityForecast && issues.some((issue) => issue.isCapacityForecast) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <div style={{ width: 24, height: 12, borderRadius: 2, background: `${FORECAST_HATCH}, var(--surface-hover)`, border: "1px dashed var(--text-muted)" }} />
-          <span>Capacity forecast</span>
-        </div>
-      )}
       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
         <div style={{ width: 24, height: 12, borderRadius: 2, background: `${BLOCKED_STRIPE}, var(--surface-hover)`, border: "1px solid var(--border)" }} />
         <BlockedIcon size={12} />
