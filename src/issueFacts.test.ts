@@ -126,6 +126,26 @@ describe("getIssueTimelineFacts", () => {
     expect(facts).toEqual([{ kind: "point", fact: "due", date: "2026-03-10", label: "Due" }]);
   });
 
+  it("returns no due event for a closed issue", () => {
+    const facts = getIssueTimelineFacts(
+      issue({ dueDate: "2026-03-10", state: state("state-done", "Done", "completed") }),
+    );
+    expect(facts).toEqual([]);
+  });
+
+  it("keeps the entered-started and completed events for a closed issue", () => {
+    const facts = getIssueTimelineFacts(
+      issue({
+        dueDate: "2026-03-10",
+        startedAt: "2026-03-02T09:00:00.000Z",
+        completedAt: "2026-03-08T17:00:00.000Z",
+        state: state("state-done", "Done", "completed"),
+      }),
+    );
+    expect(facts.map((e) => e.fact)).toEqual(["enteredStartedStatus", "statusHistory", "completed"]);
+    expect(facts.some((e) => e.fact === "due")).toBe(false);
+  });
+
   it("returns an entered-started-status event from startedAt", () => {
     const facts = getIssueTimelineFacts(issue({ startedAt: "2026-03-02T09:00:00.000Z" }));
     expect(facts).toEqual([
@@ -261,6 +281,22 @@ describe("getProjectFactsSummary", () => {
 
   it("counts overdue issues", () => {
     expect(getProjectFactsSummary(issues, DONE_STATE_IDS, today).overdue).toBe(1);
+  });
+
+  it("does not count a done-by-id issue as overdue", () => {
+    // "Merged" is a started-type state, so the issue stays open by state type
+    // while it is done by its configured state id.
+    const merged = issue({
+      id: "merged",
+      dueDate: "2026-02-20",
+      state: state("state-merged", "Merged", "started"),
+    });
+    const summary = getProjectFactsSummary([merged], DONE_STATE_IDS, today);
+    expect(summary.completed).toBe(1);
+    expect(summary.overdue).toBe(0);
+    expect(summary.open).toBe(1);
+    expect(isOpenIssue(merged)).toBe(true);
+    expect(isDoneIssue(merged, DONE_STATE_IDS)).toBe(true);
   });
 
   it("counts issues due within the next 14 calendar days", () => {

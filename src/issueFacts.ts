@@ -131,7 +131,9 @@ export function getIssueTimelineFacts(issue: LinearIssue): TimelineEvent[] {
       label: TIMELINE_LABELS.enteredStartedStatus,
     });
   }
-  if (due !== null) {
+  // A due date is a fact about work that is still open, so a closed issue has
+  // no due event.
+  if (due !== null && isOpenIssue(issue)) {
     events.push({ kind: "point", fact: "due", date: due, label: TIMELINE_LABELS.due });
   }
   if (completed !== null) {
@@ -212,10 +214,13 @@ function countCoreFacts(
   let completed = 0;
   let overdue = 0;
   for (const issue of issues) {
-    if (isDoneIssue(issue, doneStateIds)) completed += 1;
+    const done = isDoneIssue(issue, doneStateIds);
+    if (done) completed += 1;
     if (!isOpenIssue(issue)) continue;
     open += 1;
-    if (isOverdueIssue(issue, today)) overdue += 1;
+    // A done issue is not overdue, even when its state type leaves it open by
+    // type — a custom terminal state such as "Merged" is a started-type state.
+    if (!done && isOverdueIssue(issue, today)) overdue += 1;
   }
   return { open, completed, overdue };
 }
@@ -226,7 +231,7 @@ export interface ProjectFactsSummary {
   open: number;
   /** Issues in a terminal state: a completed-type state or a configured terminal state id. */
   completed: number;
-  /** Open issues whose due date already passed. */
+  /** Open, not-done issues whose due date already passed. */
   overdue: number;
   /** Open issues due within the next 14 calendar days, today included. */
   dueSoon: number;
@@ -282,7 +287,7 @@ export interface MilestoneFactsSummary {
   open: number;
   /** Issues in a terminal state: a completed-type state or a configured terminal state id. */
   completed: number;
-  /** Open issues whose due date already passed. */
+  /** Open, not-done issues whose due date already passed. */
   overdue: number;
   /** Earliest due date among the milestone's issues, or null when none has one. */
   earliestDueDate: string | null;
