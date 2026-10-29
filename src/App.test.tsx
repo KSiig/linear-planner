@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
 import App from "./App";
 
@@ -31,9 +31,29 @@ vi.mock("./linear", () => ({
 }));
 
 vi.mock("./applyPlannerQuery", () => ({
-  fetchScopedIssues: vi.fn(async () => []),
+  fetchScopedIssues: vi.fn(async () => [{
+    id: "i1",
+    identifier: "ABC-1",
+    title: "Ship the dates view",
+    url: "https://linear.app/example/issue/ABC-1",
+    estimate: 2,
+    priority: 2,
+    priorityLabel: "High",
+    sortOrder: 1,
+    startedAt: null,
+    completedAt: null,
+    dueDate: "2026-11-02",
+    description: null,
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    state: { id: "s1", name: "Todo", type: "unstarted", color: "#888888", position: 1 },
+    team: { id: "t1" },
+    assignee: null,
+    projectMilestone: null,
+    labels: { nodes: [] },
+    relations: { nodes: [] },
+  }]),
   fetchScopedById: vi.fn(async () => []),
-  filterMatchingIssues: () => [],
+  filterMatchingIssues: (issues: unknown[]) => issues,
   projectIdsToLoad: () => ["p1"],
   toOverviewIssue: (issue: unknown) => issue,
 }));
@@ -46,16 +66,20 @@ vi.mock("./views/filters/ViewMenu", () => ({
   ),
 }));
 
+beforeEach(() => {
+  localStorage.clear();
+});
+
 afterEach(() => {
   cleanup();
 });
 
 function tabButtons(): HTMLElement[] {
-  return ["Overview", "Timeline", "Tree"].map((name) => screen.getByRole("button", { name }));
+  return ["Overview", "Dates", "Tree"].map((name) => screen.getByRole("button", { name }));
 }
 
 describe("display tabs", () => {
-  it("shows Overview, Timeline, and Tree and maps a treeGlobal saved view to Tree", async () => {
+  it("shows Overview, Dates, and Tree and maps a treeGlobal saved view to Tree", async () => {
     window.history.pushState(null, "", "/p1/");
     render(<App />);
     expect(await screen.findByRole("button", { name: "Overview" })).toBeTruthy();
@@ -63,10 +87,27 @@ describe("display tabs", () => {
     expect(screen.queryByRole("button", { name: "Tree (per milestone)" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Milestones" })).toBeNull();
     expect(screen.queryByRole("button", { name: "All issues" })).toBeNull();
-    expect(tabButtons().map((button) => button.textContent)).toEqual(["Overview", "Timeline", "Tree"]);
+    expect(tabButtons().map((button) => button.textContent)).toEqual(["Overview", "Dates", "Tree"]);
     fireEvent.click(screen.getByRole("button", { name: "Apply legacy view" }));
     const tree = await screen.findByRole("button", { name: "Tree" });
     expect(tree.style.background).toBe("var(--accent)");
-    expect(screen.getByRole("button", { name: "Timeline" }).style.background).toBe("var(--bg)");
+    expect(screen.getByRole("button", { name: "Dates" }).style.background).toBe("var(--bg)");
+  });
+
+  it("renders the deadline timeline on the Dates tab", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    expect(await screen.findByRole("region", { name: "Deadline timeline" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Deadline timeline" })).toBeTruthy();
+  });
+
+  it("has no people-in-parallel, capacity forecast, start status or working-day control", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+    for (const label of ["People in parallel", "Capacity forecast", "Start status", "End status", "Show weekends", "Show holidays", "Show cooldown"]) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
+    expect(screen.queryByRole("checkbox", { name: /Capacity forecast/ })).toBeNull();
   });
 });

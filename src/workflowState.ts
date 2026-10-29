@@ -3,12 +3,29 @@ import type { LinearWorkflowState } from "./linear";
 const STATE_TYPE_ORDER: Record<string, number> = { backlog: 0, triage: 1, unstarted: 2, started: 3, completed: 4, canceled: 5 };
 
 /**
- * Resolve the configured end status to one that exists in the project's workflow.
- * Falls back to a "merged"-named started state, then any completed state.
+ * The workflow state ids the project treats as terminal.
+ *
+ * Ids the workflow no longer knows are dropped, so a state deleted in Linear
+ * stops counting as done. The completed-type states are terminal without being
+ * configured: the shared done-state logic in `issueFacts` treats them as done.
  */
-export function computeEffectiveEndStatus(endStatusName: string, states: LinearWorkflowState[]): string {
+export function computeEffectiveDoneStateIds(storedIds: readonly string[], states: LinearWorkflowState[]): string[] {
+  const known = new Set(states.map((state) => state.id));
+  return storedIds.filter((id) => known.has(id));
+}
+
+/**
+ * The state name the scheduler takes as the end of the work.
+ *
+ * The Done states setting stores state ids; the scheduler still takes one
+ * state name. The first configured done state provides that name. Without a
+ * configured state the scheduler keeps its own default: a "merged" state, else
+ * any completed state.
+ */
+export function resolveEndStatusName(doneStateIds: readonly string[], states: LinearWorkflowState[]): string {
+  const first = states.find((state) => state.id === doneStateIds[0]);
+  if (first) return first.name;
   const candidates = states.filter((s) => s.type === "started" || s.type === "completed");
-  if (endStatusName && candidates.some((s) => s.name === endStatusName)) return endStatusName;
   const merged = candidates.find((s) => s.type === "started" && s.name.toLowerCase().includes("merged"));
   if (merged) return merged.name;
   const completed = candidates.find((s) => s.type === "completed");

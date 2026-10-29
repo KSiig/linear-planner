@@ -66,7 +66,7 @@ describe("ViewMenu", () => {
 
   it("shows the workspace error when loadSavedViews returns 403", async () => {
     vi.mocked(loadSavedViews).mockRejectedValue(new Error("Saved views request failed: 403"));
-    render(<ViewMenu query={emptyPlannerQuery()} mode="workers" onApply={() => {}} onCreated={() => {}} onRenamed={() => {}} onDeleted={() => {}} />);
+    render(<ViewMenu query={emptyPlannerQuery()} mode="dates" onApply={() => {}} onCreated={() => {}} onRenamed={() => {}} onDeleted={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Views" }));
     expect(await screen.findByText("This account is outside the siig workspace.")).toBeTruthy();
   });

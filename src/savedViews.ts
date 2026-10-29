@@ -1,6 +1,6 @@
 import { emptyPlannerQuery, isPlannerQuery, type PlannerQuery } from "./plannerQuery";
 
-export type SavedViewMode = "workers" | "tree" | "overview";
+export type SavedViewMode = "dates" | "tree" | "overview";
 
 export interface SavedView {
   id: string;
@@ -12,15 +12,22 @@ export interface SavedView {
 const QUERY_KEY = "linear-planner:query";
 const ACTIVE_VIEW_KEY = "linear-planner:active-view";
 
-const MODES = new Set<SavedViewMode>(["workers", "tree", "overview"]);
+const MODES = new Set<SavedViewMode>(["dates", "tree", "overview"]);
 
 export function isSavedViewMode(value: unknown): value is SavedViewMode {
   return typeof value === "string" && MODES.has(value as SavedViewMode);
 }
 
-/** Stored rows may still say treeGlobal. Readers select tree and do not delete the row. */
+/**
+ * The mode a stored saved-view row stands for.
+ *
+ * A stored "workers" mode is the old name of the "dates" view: it reads as
+ * "dates". A stored "treeGlobal" mode reads as "tree". An unknown mode reads as
+ * null, so the caller falls back safely.
+ */
 export function readSavedViewMode(value: unknown): SavedViewMode | null {
   if (value === "treeGlobal") return "tree";
+  if (value === "workers") return "dates";
   return isSavedViewMode(value) ? value : null;
 }
 

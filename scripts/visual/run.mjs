@@ -54,9 +54,9 @@ const DATA_VIEW_PATH = '/proj-priskurven/';
 
 const SURFACES = Object.freeze([
   Object.freeze({ view: 'landing',     state: 'sign-in',   needsAuth: false }),
-  Object.freeze({ view: 'timeline',    state: 'populated', needsAuth: true  }),
-  Object.freeze({ view: 'timeline',    state: 'filters',   needsAuth: true  }),
-  Object.freeze({ view: 'timeline',    state: 'views',     needsAuth: true  }),
+  Object.freeze({ view: 'dates',      state: 'populated', needsAuth: true  }),
+  Object.freeze({ view: 'dates',      state: 'filters',   needsAuth: true  }),
+  Object.freeze({ view: 'dates',      state: 'views',     needsAuth: true  }),
   Object.freeze({ view: 'tree',        state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'settings',    state: 'panel',     needsAuth: true  }),
   Object.freeze({ view: 'overview',    state: 'collapsed', needsAuth: true  }),
@@ -385,18 +385,14 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
 
   if (surface.view === 'landing') {
     await page.getByRole('button', { name: 'Sign in with Linear' }).waitFor({ state: 'visible', timeout: 15_000 });
-  } else if (surface.view === 'timeline') {
+  } else if (surface.view === 'dates') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByRole('button', { name: 'Timeline' }).waitFor({ state: 'visible', timeout: 15_000 });
-    const undated = page.getByRole('region', { name: 'No due date' });
+    await page.getByRole('button', { name: 'Dates' }).waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('heading', { name: 'Deadline timeline' }).waitFor({ state: 'visible', timeout: 15_000 });
+    const undated = page.getByRole('region', { name: 'Open issues without a due date' });
     await undated.waitFor({ state: 'visible', timeout: 15_000 });
     await undated.getByText('SII-101').waitFor({ state: 'visible', timeout: 15_000 });
-    await undated.getByText('These issues are not placed on the timeline.').waitFor({ state: 'visible', timeout: 15_000 });
-    if (await undated.getByText('SII-93').count() !== 0) {
-      fail('in-progress SII-93 was listed under No due date');
-    }
     await assertHeaderChrome(page);
     if (surface.state === 'filters') {
       await page.getByRole('button', { name: 'Filters', exact: true }).click();
@@ -411,22 +407,22 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
       const documentScrolls = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       );
-      if (documentScrolls) fail('timeline document scrolls horizontally');
+      if (documentScrolls) fail('dates document scrolls horizontally');
     }
   } else if (surface.view === 'tree') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('button', { name: 'Overview', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await assertHeaderChrome(page);
     await page.getByRole('button', { name: 'Tree', exact: true }).click();
     await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'settings') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
-    await page.getByText('SII-91').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('button', { name: 'Overview', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await assertHeaderChrome(page);
     await page.getByLabel('Settings').click();
-    await page.getByText('People in parallel').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('Done states').waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'overview') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);

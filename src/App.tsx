@@ -2,16 +2,16 @@ import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties }
 import { fetchProjects, fetchProjectCycles, fetchProjectMilestones, fetchProjectWorkflowStates, fetchIssueStateHistory, endDateFromTransitions, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
 import type { LinearProject, LinearIssue, LinearCycle, LinearMilestone, LinearWorkflowState, StateTransition, AssignedInterval, NoCountRange } from "./linear";
 import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isWriteEnabled, setWriteEnabled, isAutoRefreshEnabled, setAutoRefreshEnabled } from "./auth";
-import { scheduleIssues, buildIsDone } from "./scheduler";
+import { scheduleIssues } from "./scheduler";
 import type { ScheduleResult } from "./scheduler";
-import { GanttChart } from "./GanttChart";
 import { DependencyTree } from "./DependencyTree";
+import { DeadlineTimeline } from "./DeadlineTimeline";
 import { BASE_PATH, getProjectIdFromUrl, navigateToProject } from "./routing";
 import { loadProjectSettings, saveProjectSettings, LEGACY_STORAGE_KEY, type Mode } from "./projectSettings";
-import { computeEffectiveEndStatus, sortStates } from "./workflowState";
-import { StatusSelect } from "./StatusSelect";
+import { computeEffectiveDoneStateIds, resolveEndStatusName, sortStates } from "./workflowState";
 import { GlobalStatus } from "./GlobalStatus";
-import { centerCard, tabButtonStyle, stepperButtonStyle, buttonStyle } from "./appStyles";
+import { isDoneIssue } from "./issueFacts";
+import { centerCard, tabButtonStyle, buttonStyle } from "./appStyles";
 import { useNarrowLayout } from "./useNarrowLayout";
 import { Overview } from "./views/overview/Overview";
 import { localToday } from "./views/overview/calendar";
@@ -68,20 +68,22 @@ function FilterChip({ pressed, onClick, children }: { pressed: boolean; onClick:
 // Don't auto-refresh if the data was already refreshed within this window.
 const AUTO_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
 
+/**
+ * How many people the tree's schedule assumes work in parallel.
+ *
+ * The planner no longer offers a "people in parallel" setting: the tree shows
+ * the dependency order, not a staffing plan.
+ */
+const SCHEDULE_WORKERS = 2;
+
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [projects, setProjects] = useState<LinearProject[]>([]);
-  const [numWorkers, setNumWorkers] = useState(2);
-  const [mode, setMode] = useState<Mode>("workers");
-  const [showWeekends, setShowWeekends] = useState(false);
-  const [showHolidays, setShowHolidays] = useState(true);
-  const [showCooldown, setShowCooldown] = useState(true);
-  const [showCapacityForecast, setShowCapacityForecast] = useState(false);
+  const [mode, setMode] = useState<Mode>("dates");
   const [drawCrossMilestoneDeps, setDrawCrossMilestoneDeps] = useState(false);
   const [includeDoneIssuesTree, setIncludeDoneIssuesTree] = useState(true);
   const [includeDoneIssuesTreeGlobal, setIncludeDoneIssuesTreeGlobal] = useState(true);
-  const [startStatusName, setStartStatusName] = useState("");
-  const [endStatusName, setEndStatusName] = useState("");
+  const [doneStateIds, setDoneStateIds] = useState<string[]>([]);
   const [doneEndDates, setDoneEndDates] = useState<Map<string, string>>(new Map());
   const [stateHistoryByIssue, setStateHistoryByIssue] = useState<Map<string, StateTransition[]>>(new Map());
   const [assignedIntervalsByIssue, setAssignedIntervalsByIssue] = useState<Map<string, AssignedInterval[]>>(new Map());
@@ -103,8 +105,8 @@ export default function App() {
   const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
   const [chartStart, setChartStart] = useState<Date>(new Date());
 
-  const endStatusNameRef = useRef(endStatusName);
-  endStatusNameRef.current = endStatusName;
+  const doneStateIdsRef = useRef(doneStateIds);
+  doneStateIdsRef.current = doneStateIds;
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
   const loadGen = useRef(0);
@@ -116,38 +118,39 @@ export default function App() {
   // `projects` though, so an existing /p/<id> URL for one still restores.
   const selectableProjects = useMemo(() => projects.filter((p) => p.hasIssues), [projects]);
 
-  const startedStates = useMemo(
+  // The states the project can treat as terminal on top of the completed ones.
+  const doneStateCandidates = useMemo(
     () => sortStates(workflowStates.filter((s) => s.type === "started")),
     [workflowStates],
   );
 
-  const endStatusCandidates = useMemo(
-    () => sortStates(workflowStates.filter((s) => s.type === "started" || s.type === "completed")),
-    [workflowStates],
+  // The workflow state ids the project treats as terminal. Ids the workflow no
+  // longer knows are dropped.
+  const effectiveDoneStateIds = useMemo(
+    () => computeEffectiveDoneStateIds(doneStateIds, workflowStates),
+    [doneStateIds, workflowStates],
   );
+  const doneStateIdSet = useMemo(() => new Set(effectiveDoneStateIds), [effectiveDoneStateIds]);
 
-  const effectiveStartStatus = useMemo(() => {
-    if (startStatusName && startedStates.some((s) => s.name === startStatusName)) return startStatusName;
-    return startedStates.length > 0 ? startedStates[0].name : "";
-  }, [startStatusName, startedStates]);
-
+  // The scheduler still takes one state name: the first configured done state.
   const effectiveEndStatus = useMemo(
-    () => computeEffectiveEndStatus(endStatusName, workflowStates),
-    [endStatusName, workflowStates],
+    () => resolveEndStatusName(effectiveDoneStateIds, workflowStates),
+    [effectiveDoneStateIds, workflowStates],
   );
 
-  const maxParallelism = useMemo(() => {
-    if (projectIssues.length === 0) return 1;
-    const unlimited = scheduleIssues(projectIssues, projectIssues.length, chartStart, projectCycles, projectMilestones, workflowStates, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue);
-    return unlimited.usedWorkers;
-  }, [projectIssues, projectCycles, projectMilestones, workflowStates, chartStart, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue]);
-
-  const effectiveWorkers = Math.min(numWorkers, maxParallelism);
+  // The scheduler's start state: the first started state of the workflow.
+  const effectiveStartStatus = useMemo(
+    () => (doneStateCandidates.length > 0 ? doneStateCandidates[0].name : ""),
+    [doneStateCandidates],
+  );
 
   const schedule: ScheduleResult | null = useMemo(() => {
     if (projectIssues.length === 0) return null;
-    return scheduleIssues(projectIssues, effectiveWorkers, chartStart, projectCycles, projectMilestones, workflowStates, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue);
-  }, [projectIssues, projectCycles, projectMilestones, workflowStates, effectiveWorkers, chartStart, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue]);
+    return scheduleIssues(projectIssues, SCHEDULE_WORKERS, chartStart, projectCycles, projectMilestones, workflowStates, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue);
+  }, [projectIssues, projectCycles, projectMilestones, workflowStates, chartStart, effectiveEndStatus, doneEndDates, effectiveStartStatus, stateHistoryByIssue, assignedIntervalsByIssue, noCountByIssue]);
+
+  /** The current calendar day (`YYYY-MM-DD`). */
+  const today = localToday(new Date());
 
   // Restore session on mount (or handle OAuth callback)
   useEffect(() => {
@@ -174,17 +177,11 @@ export default function App() {
             const urlProjectId = getProjectIdFromUrl();
             const match = urlProjectId ? projs.find((p) => p.id === urlProjectId) : null;
             const ps = loadProjectSettings(match ? urlProjectId : null);
-            setNumWorkers(ps.numWorkers);
             setMode(ps.mode);
             setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
             setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
             setIncludeDoneIssuesTreeGlobal(ps.includeDoneIssuesTreeGlobal);
-            setShowWeekends(ps.showWeekends);
-            setShowHolidays(ps.showHolidays);
-            setShowCooldown(ps.showCooldown);
-            setShowCapacityForecast(ps.showCapacityForecast);
-            setStartStatusName(ps.startStatusName);
-            setEndStatusName(ps.endStatusName);
+            setDoneStateIds(ps.doneStateIds);
             setConnected(true);
             setRestoring(false);
           })
@@ -218,17 +215,11 @@ export default function App() {
         const urlProjectId = getProjectIdFromUrl();
         const match = urlProjectId ? projs.find((p) => p.id === urlProjectId) : null;
         const ps = loadProjectSettings(match ? urlProjectId : null);
-        setNumWorkers(ps.numWorkers);
         setMode(ps.mode);
         setDrawCrossMilestoneDeps(ps.drawCrossMilestoneDeps);
         setIncludeDoneIssuesTree(ps.includeDoneIssuesTree);
         setIncludeDoneIssuesTreeGlobal(ps.includeDoneIssuesTreeGlobal);
-        setShowWeekends(ps.showWeekends);
-        setShowHolidays(ps.showHolidays);
-        setShowCooldown(ps.showCooldown);
-        setShowCapacityForecast(ps.showCapacityForecast);
-        setStartStatusName(ps.startStatusName);
-        setEndStatusName(ps.endStatusName);
+        setDoneStateIds(ps.doneStateIds);
 
         if (match && urlProjectId) {
           const stored = loadPlannerQuery();
@@ -249,8 +240,8 @@ export default function App() {
 
   useEffect(() => {
     if (!connected) return;
-    saveProjectSettings({ numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName });
-  }, [connected, numWorkers, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, showWeekends, showHolidays, showCooldown, showCapacityForecast, startStatusName, endStatusName]);
+    saveProjectSettings({ mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, doneStateIds });
+  }, [connected, mode, drawCrossMilestoneDeps, includeDoneIssuesTree, includeDoneIssuesTreeGlobal, doneStateIds]);
 
   useEffect(() => {
     const handler = () => {
@@ -322,9 +313,13 @@ export default function App() {
           if (d < start) start = d;
         }
       }
-      const endName = computeEffectiveEndStatus(endStatusNameRef.current, states);
-      const isDone = buildIsDone(issues, states, endName);
-      const doneIds = issues.filter((i) => i.startedAt && isDone(i)).map((i) => i.id);
+      // The shared done-state logic: a completed-type state is terminal, and so is
+      // every state the project configured as done.
+      const doneStateIds = computeEffectiveDoneStateIds(doneStateIdsRef.current, states);
+      const doneStateIdSet = new Set(doneStateIds);
+      const doneIds = issues.filter((i) => i.startedAt && isDoneIssue(i, doneStateIdSet)).map((i) => i.id);
+      // The scheduler still takes one state name: the first configured done state.
+      const endName = resolveEndStatusName(doneStateIds, states);
 
       // Fetch the state-transition history of every issue that ever started — done ones
       // included. The scheduler uses it to discount time spent in below-start states (e.g.
@@ -468,7 +463,7 @@ export default function App() {
   const applySavedView = useCallback((view: SavedView) => {
     setPlannerQuery(view.query);
     savePlannerQuery(view.query);
-    setMode(readSavedViewMode(view.mode) ?? "workers");
+    setMode(readSavedViewMode(view.mode) ?? "dates");
     rememberView(view);
   }, [rememberView]);
 
@@ -498,28 +493,36 @@ export default function App() {
 
   const narrow = useNarrowLayout();
 
+  const toggleDoneState = useCallback((stateId: string, checked: boolean) => {
+    setDoneStateIds((current) => (
+      checked
+        ? (current.includes(stateId) ? current : [...current, stateId])
+        : current.filter((id) => id !== stateId)
+    ));
+  }, []);
+
   const settingsFields = (
     <>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: 13, color: "var(--text-muted)" }}>
-        <span>People in parallel</span>
-        <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-          <button onClick={() => setNumWorkers((n) => Math.max(1, n - 1))} disabled={numWorkers <= 1} style={stepperButtonStyle}>-</button>
-          <span style={{ padding: "4px 12px", fontSize: 13, fontWeight: 600, minWidth: 32, textAlign: "center", background: "var(--bg)", color: "var(--text)" }}>
-            {Math.min(numWorkers, maxParallelism)}
-          </span>
-          <button onClick={() => setNumWorkers((n) => Math.min(maxParallelism, n + 1))} disabled={numWorkers >= maxParallelism} style={stepperButtonStyle}>+</button>
-        </div>
-      </div>
-      <div style={{ height: 1, background: "var(--border)" }} />
-      {startedStates.length > 0 && (
+      {doneStateCandidates.length > 0 && (
         <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
-            <span>Start status</span>
-            <StatusSelect states={startedStates} startedStates={startedStates} value={effectiveStartStatus} onChange={setStartStatusName} />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
-            <span>End status</span>
-            <StatusSelect states={endStatusCandidates} startedStates={startedStates} value={effectiveEndStatus} onChange={setEndStatusName} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "var(--text-muted)" }}>
+            <span>Done states</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto" }}>
+              {doneStateCandidates.map((state) => (
+                <label
+                  key={state.id}
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                  title={`Issues in ${state.name} count as completed`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={doneStateIds.includes(state.id)}
+                    onChange={(e) => toggleDoneState(state.id, e.target.checked)}
+                  />
+                  {state.name}
+                </label>
+              ))}
+            </div>
           </div>
           <div style={{ height: 1, background: "var(--border)" }} />
         </>
@@ -585,7 +588,7 @@ export default function App() {
                 <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
               </div>
             )}
-            {schedule && <GlobalStatus schedule={schedule} includeCapacityForecast={showCapacityForecast} />}
+            {projectIssues.length > 0 && <GlobalStatus issues={projectIssues} doneStateIds={doneStateIdSet} today={today} />}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
               <FilterMenu
                 query={plannerQuery}
@@ -691,74 +694,41 @@ export default function App() {
                   <button aria-label="Overview" onClick={() => selectMode("overview")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "overview" ? "var(--accent)" : "var(--bg)", color: mode === "overview" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Overview
                   </button>
-                  <button aria-label="Timeline" onClick={() => selectMode("workers")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "workers" ? "var(--accent)" : "var(--bg)", color: mode === "workers" ? "var(--accent-text)" : "var(--text-muted)" }}>
-                    Timeline
+                  <button aria-label="Dates" onClick={() => selectMode("dates")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "dates" ? "var(--accent)" : "var(--bg)", color: mode === "dates" ? "var(--accent-text)" : "var(--text-muted)" }}>
+                    Dates
                   </button>
                   <button aria-label="Tree" onClick={() => selectMode("tree")} style={{ ...tabButtonStyle, ...(narrow ? { flex: 1, padding: "8px 2px", whiteSpace: "nowrap" as const } : {}), background: mode === "tree" ? "var(--accent)" : "var(--bg)", color: mode === "tree" ? "var(--accent-text)" : "var(--text-muted)" }}>
                     Tree
                   </button>
                 </div>
-                {narrow ? (
+                {mode === "tree" && (narrow ? (
                   <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
-                    {mode === "workers" && (
-                      <>
-                        <FilterChip pressed={showWeekends} onClick={() => setShowWeekends((v) => !v)}>Weekends</FilterChip>
-                        <FilterChip pressed={showHolidays} onClick={() => setShowHolidays((v) => !v)}>Holidays</FilterChip>
-                        <FilterChip pressed={showCooldown} onClick={() => setShowCooldown((v) => !v)}>Cooldown</FilterChip>
-                        <FilterChip pressed={showCapacityForecast} onClick={() => setShowCapacityForecast((v) => !v)}>Forecast</FilterChip>
-                      </>
-                    )}
-                    {mode === "tree" && (
-                      <>
-                        <FilterChip pressed={drawCrossMilestoneDeps} onClick={() => setDrawCrossMilestoneDeps((v) => !v)}>Cross-milestone</FilterChip>
-                        <FilterChip pressed={includeDoneIssuesTree} onClick={() => setIncludeDoneIssuesTree((v) => !v)}>Done issues</FilterChip>
-                      </>
-                    )}
+                    <FilterChip pressed={drawCrossMilestoneDeps} onClick={() => setDrawCrossMilestoneDeps((v) => !v)}>Cross-milestone</FilterChip>
+                    <FilterChip pressed={includeDoneIssuesTree} onClick={() => setIncludeDoneIssuesTree((v) => !v)}>Done issues</FilterChip>
                   </div>
                 ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                  {mode === "workers" && (
-                    <>
-                      <label style={modeSettingStyle}>
-                        <input type="checkbox" checked={showWeekends} onChange={(e) => setShowWeekends(e.target.checked)} />
-                        Show weekends
-                      </label>
-                      <label style={modeSettingStyle}>
-                        <input type="checkbox" checked={showHolidays} onChange={(e) => setShowHolidays(e.target.checked)} />
-                        Show holidays
-                      </label>
-                      <label style={modeSettingStyle}>
-                        <input type="checkbox" checked={showCooldown} onChange={(e) => setShowCooldown(e.target.checked)} />
-                        Show cooldown
-                      </label>
-                      <label style={modeSettingStyle} title="Place issues with no due date on the timeline from today. The bars are a forecast, not a deadline.">
-                        <input type="checkbox" checked={showCapacityForecast} onChange={(e) => setShowCapacityForecast(e.target.checked)} />
-                        Capacity forecast
-                      </label>
-                    </>
-                  )}
-                  {mode === "tree" && (
-                    <>
-                      <label style={modeSettingStyle}>
-                        <input type="checkbox" checked={drawCrossMilestoneDeps} onChange={(e) => setDrawCrossMilestoneDeps(e.target.checked)} />
-                        Draw dependencies between milestones
-                      </label>
-                      <label style={modeSettingStyle}>
-                        <input type="checkbox" checked={includeDoneIssuesTree} onChange={(e) => setIncludeDoneIssuesTree(e.target.checked)} />
-                        Include done issues
-                      </label>
-                    </>
-                  )}
-                </div>
-                )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                    <label style={modeSettingStyle}>
+                      <input type="checkbox" checked={drawCrossMilestoneDeps} onChange={(e) => setDrawCrossMilestoneDeps(e.target.checked)} />
+                      Draw dependencies between milestones
+                    </label>
+                    <label style={modeSettingStyle}>
+                      <input type="checkbox" checked={includeDoneIssuesTree} onChange={(e) => setIncludeDoneIssuesTree(e.target.checked)} />
+                      Include done issues
+                    </label>
+                  </div>
+                ))}
               </div>
             )}
-            {!loading && !error && schedule && mode === "workers" && (
-              <GanttChart schedule={schedule} showWeekends={showWeekends} showHolidays={showHolidays} showCooldown={showCooldown} showCapacityForecast={showCapacityForecast} />
+            {!loading && !error && mode === "dates" && (
+              <DeadlineTimeline issues={projectIssues} />
             )}
             {!loading && !error && schedule && mode === "tree" && (
               <DependencyTree
                 schedule={schedule}
+                issues={projectIssues}
+                doneStateIds={doneStateIdSet}
+                today={today}
                 variant={drawCrossMilestoneDeps ? "split" : "individual"}
                 includeDone={includeDoneIssuesTree}
                 writeEnabled={writeEnabled}

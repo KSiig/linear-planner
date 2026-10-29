@@ -44,10 +44,10 @@ describe("FilterChips", () => {
     const view: SavedView = { id: "v1", name: "Huskøb", query: emptyPlannerQuery(), mode: "overview" };
     function Harness() {
       const [active, setActive] = useState<SavedView | null>(view);
-      const [mode, setMode] = useState<"overview" | "workers">("overview");
+      const [mode, setMode] = useState<"overview" | "dates">("overview");
       return (
         <>
-          <button type="button" onClick={() => { setMode("workers"); setActive(null); }}>Timeline</button>
+          <button type="button" onClick={() => { setMode("dates"); setActive(null); }}>Dates</button>
           <FilterChips
             query={emptyPlannerQuery()}
             mode={mode}
@@ -63,7 +63,7 @@ describe("FilterChips", () => {
     }
     render(<Harness />);
     expect(screen.queryByRole("button", { name: "Save view" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dates" }));
     expect(screen.getByRole("button", { name: "Save view" })).toBeTruthy();
   });
 

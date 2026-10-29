@@ -1,18 +1,23 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import type { ScheduleResult, ScheduledIssue } from "./scheduler";
+import type { LinearIssue } from "./linear";
 import { dayToDate, formatDate, formatParisTimeOfDay } from "./workingDays";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon, PriorityIcon, AssigneeAvatar, DurationBadge } from "./CardIcons";
 import { MilestoneHeader, MilestoneBandLabel } from "./MilestoneHeader";
 import { useNarrowLayout } from "./useNarrowLayout";
+import { localToday } from "./views/overview/calendar";
 import { Legend } from "./Legend";
-import { BLOCKED_STRIPE, NO_ESTIMATE_BG, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker } from "./cardStyle";
+import { BLOCKED_STRIPE, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker } from "./cardStyle";
 import { layoutDependencyTree, layoutDependencyTreeGlobal, layoutDependencyTreePerMilestone, edgePath, NODE_WIDTH, NODE_HEIGHT, type TreeLayoutResult } from "./treeLayout";
 
 const LABEL_WIDTH = 220;
 const BAND_HEADER_H = 36;
 
 const EMPTY_LAYOUT: TreeLayoutResult = { nodes: [], edges: [], bands: [], contentWidth: 0, contentHeight: 0 };
+
+/** No workflow state is configured as terminal. */
+const EMPTY_DONE_STATES: ReadonlySet<string> = new Set<string>();
 
 /**
  * Insert a header slot at the top of each milestone band and push nodes and edges down
@@ -54,6 +59,9 @@ export type TreeVariant = "split" | "individual" | "global";
 
 export function DependencyTree({
   schedule,
+  issues = [],
+  doneStateIds = EMPTY_DONE_STATES,
+  today = localToday(new Date()),
   variant = "split",
   includeDone = true,
   writeEnabled = false,
@@ -61,6 +69,12 @@ export function DependencyTree({
   onDeleteRelation,
 }: {
   schedule: ScheduleResult;
+  /** The Linear issues of the project, exactly as Linear reported them. */
+  issues?: readonly LinearIssue[];
+  /** The workflow state ids the project treats as terminal. */
+  doneStateIds?: ReadonlySet<string>;
+  /** The current calendar day (`YYYY-MM-DD`). */
+  today?: string;
   variant?: TreeVariant;
   includeDone?: boolean;
   writeEnabled?: boolean;
@@ -69,6 +83,17 @@ export function DependencyTree({
   /** Called when the user removes an existing "blocked by" relation via the context menu. */
   onDeleteRelation?: (relationId: string) => Promise<void>;
 }) {
+  // The issues of every milestone, so a band header counts the same facts the global bar does.
+  const issuesByMilestone = useMemo(() => {
+    const map = new Map<string | null, LinearIssue[]>();
+    for (const issue of issues) {
+      const key = issue.projectMilestone?.id ?? null;
+      const list = map.get(key);
+      if (list) list.push(issue);
+      else map.set(key, [issue]);
+    }
+    return map;
+  }, [issues]);
   // Optionally hide done issues from the tree (cleaner forward-looking planning view).
   const filteredSchedule = useMemo<ScheduleResult>(
     () => (includeDone ? schedule : { ...schedule, issues: schedule.issues.filter((i) => !i.done) }),
@@ -194,7 +219,7 @@ export function DependencyTree({
                     boxSizing: "border-box",
                   }}
                 >
-                  <MilestoneHeader name={band.name} summary={band.summary} />
+                  <MilestoneHeader name={band.name} issues={issuesByMilestone.get(band.milestone?.id ?? null) ?? []} doneStateIds={doneStateIds} today={today} />
                 </div>
               ))}
             </div>
@@ -219,7 +244,7 @@ export function DependencyTree({
                 }}
               >
                 <div style={{ position: "sticky", left: 0, width: "fit-content", maxWidth: "100%", padding: "8px 12px", fontSize: 12, fontWeight: 700, color: "var(--iteration-line)", whiteSpace: "nowrap" }}>
-                  <MilestoneBandLabel name={band.name} summary={band.summary} />
+                  <MilestoneBandLabel name={band.name} issues={issuesByMilestone.get(band.milestone?.id ?? null) ?? []} doneStateIds={doneStateIds} today={today} />
                 </div>
               </div>
             ))}
@@ -335,7 +360,7 @@ export function DependencyTree({
                     background: [
                       isBlocked ? BLOCKED_STRIPE : null,
                       node.issue.done ? DONE_STRIPE : null,
-                      ongoingStatusBg(node.issue.stateType, node.issue.done, node.issue.stateColor) ?? (!node.issue.hasEstimate ? NO_ESTIMATE_BG : "var(--surface-hover)"),
+                      ongoingStatusBg(node.issue.stateType, node.issue.done, node.issue.stateColor) ?? "var(--surface-hover)",
                     ].filter(Boolean).join(", "),
                     border: isDropTarget
                       ? "2px dashed var(--accent)"

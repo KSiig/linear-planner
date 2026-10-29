@@ -65,7 +65,7 @@ describe("header", () => {
     expect(screen.queryByText("Select a project…")).toBeNull();
     expect(screen.queryByText("Select a project to display.")).toBeNull();
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Timeline" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dates" })).toBeTruthy();
     expect(window.location.pathname).toBe("/");
     expect(JSON.parse(localStorage.getItem("linear-planner:query") ?? "{}").projectIds).toEqual(["A"]);
   });

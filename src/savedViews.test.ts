@@ -35,6 +35,14 @@ describe("readSavedViewMode", () => {
   it("maps a saved view mode treeGlobal to tree", () => {
     expect(readSavedViewMode("treeGlobal")).toBe("tree");
   });
+
+  it("maps a saved view mode workers to dates", () => {
+    expect(readSavedViewMode("workers")).toBe("dates");
+  });
+
+  it("returns null for an unknown mode", () => {
+    expect(readSavedViewMode("gantt")).toBeNull();
+  });
 });
 
 describe("createSavedView", () => {
