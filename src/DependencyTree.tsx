@@ -1,9 +1,9 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
-import type { ScheduleResult, ScheduledIssue } from "./scheduler";
-import type { LinearIssue } from "./linear";
-import { dayToDate, formatDate, formatParisTimeOfDay } from "./workingDays";
+import type { LinearIssue, LinearMilestone, LinearWorkflowState } from "./linear";
+import { TIMELINE_LABELS } from "./issueFacts";
+import { buildTreeIssues, type TreeIssue } from "./treeFacts";
 import { StatusCircle } from "./StatusCircle";
-import { BlockedIcon, PriorityIcon, AssigneeAvatar, DurationBadge } from "./CardIcons";
+import { BlockedIcon, PriorityIcon, AssigneeAvatar } from "./CardIcons";
 import { MilestoneHeader, MilestoneBandLabel } from "./MilestoneHeader";
 import { useNarrowLayout } from "./useNarrowLayout";
 import { localToday } from "./views/overview/calendar";
@@ -18,6 +18,22 @@ const EMPTY_LAYOUT: TreeLayoutResult = { nodes: [], edges: [], bands: [], conten
 
 /** No workflow state is configured as terminal. */
 const EMPTY_DONE_STATES: ReadonlySet<string> = new Set<string>();
+
+/** No milestone of the project is known. */
+const EMPTY_MILESTONES: readonly LinearMilestone[] = [];
+
+/** The workflow has no started state. */
+const EMPTY_STARTED_STATES: readonly LinearWorkflowState[] = [];
+
+/** `2026-11-02` → `2 Nov 2026`. */
+function formatIsoDate(isoDate: string): string {
+  const [year, month, day] = isoDate.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 /**
  * Insert a header slot at the top of each milestone band and push nodes and edges down
@@ -58,9 +74,10 @@ function withBandHeaders(layout: TreeLayoutResult, header: number): TreeLayoutRe
 export type TreeVariant = "split" | "individual" | "global";
 
 export function DependencyTree({
-  schedule,
   issues = [],
+  milestones = EMPTY_MILESTONES,
   doneStateIds = EMPTY_DONE_STATES,
+  startedStates = EMPTY_STARTED_STATES,
   today = localToday(new Date()),
   variant = "split",
   includeDone = true,
@@ -68,11 +85,14 @@ export function DependencyTree({
   onCreateBlockingRelation,
   onDeleteRelation,
 }: {
-  schedule: ScheduleResult;
   /** The Linear issues of the project, exactly as Linear reported them. */
   issues?: readonly LinearIssue[];
+  /** The milestones of the project, in the order Linear reports them. */
+  milestones?: readonly LinearMilestone[];
   /** The workflow state ids the project treats as terminal. */
   doneStateIds?: ReadonlySet<string>;
+  /** The started states of the workflow. */
+  startedStates?: readonly LinearWorkflowState[];
   /** The current calendar day (`YYYY-MM-DD`). */
   today?: string;
   variant?: TreeVariant;
@@ -83,6 +103,11 @@ export function DependencyTree({
   /** Called when the user removes an existing "blocked by" relation via the context menu. */
   onDeleteRelation?: (relationId: string) => Promise<void>;
 }) {
+  // The facts the tree draws: the issues themselves and the relations between them.
+  const treeIssues = useMemo(
+    () => buildTreeIssues(issues, doneStateIds, startedStates),
+    [issues, doneStateIds, startedStates],
+  );
   // The issues of every milestone, so a band header counts the same facts the global bar does.
   const issuesByMilestone = useMemo(() => {
     const map = new Map<string | null, LinearIssue[]>();
@@ -95,20 +120,20 @@ export function DependencyTree({
     return map;
   }, [issues]);
   // Optionally hide done issues from the tree (cleaner forward-looking planning view).
-  const filteredSchedule = useMemo<ScheduleResult>(
-    () => (includeDone ? schedule : { ...schedule, issues: schedule.issues.filter((i) => !i.done) }),
-    [schedule, includeDone],
+  const filteredIssues = useMemo<TreeIssue[]>(
+    () => (includeDone ? treeIssues : treeIssues.filter((i) => !i.done)),
+    [treeIssues, includeDone],
   );
   const containerRef = useRef<HTMLDivElement>(null);
-  const [tooltipInfo, setTooltipInfo] = useState<{ issue: ScheduledIssue; x: number; y: number } | null>(null);
+  const [tooltipInfo, setTooltipInfo] = useState<{ issue: TreeIssue; x: number; y: number } | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [layout, setLayout] = useState<TreeLayoutResult>(EMPTY_LAYOUT);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const [pendingDrop, setPendingDrop] = useState<{ dragged: ScheduledIssue; target: ScheduledIssue } | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<{ dragged: TreeIssue; target: TreeIssue } | null>(null);
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; issue: ScheduledIssue } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; issue: TreeIssue } | null>(null);
 
   // Close the context menu on any global click / scroll / escape.
   useEffect(() => {
@@ -153,16 +178,16 @@ export function DependencyTree({
 
   useEffect(() => {
     let cancelled = false;
-    const layoutFn = variant === "global"
-      ? layoutDependencyTreeGlobal
+    const layoutPromise = variant === "global"
+      ? layoutDependencyTreeGlobal(filteredIssues)
       : variant === "individual"
-        ? layoutDependencyTreePerMilestone
-        : layoutDependencyTree;
-    layoutFn(filteredSchedule).then((result) => {
+        ? layoutDependencyTreePerMilestone(filteredIssues, milestones)
+        : layoutDependencyTree(filteredIssues, milestones);
+    layoutPromise.then((result) => {
       if (!cancelled) setLayout(result);
     });
     return () => { cancelled = true; };
-  }, [filteredSchedule, variant]);
+  }, [filteredIssues, milestones, variant]);
 
   const narrow = useNarrowLayout();
   const view = useMemo(() => (narrow ? withBandHeaders(layout, BAND_HEADER_H) : layout), [narrow, layout]);
@@ -170,7 +195,7 @@ export function DependencyTree({
   const contentHeight = Math.max(view.contentHeight, 100);
   const showRail = view.bands.length > 0 && !narrow;
 
-  const legend = <Legend issues={schedule.issues} />;
+  const legend = <Legend issues={filteredIssues} />;
 
   return (
     <>
@@ -390,7 +415,6 @@ export function DependencyTree({
                     <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)", flexShrink: 0 }}>
                       {node.issue.identifier}
                     </span>
-                    <DurationBadge issue={node.issue} style={{ fontSize: 10, color: "var(--text-muted)" }} />
                     {node.issue.priority > 0 && (
                       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center" }} title={node.issue.priorityLabel}>
                         <PriorityIcon priority={node.issue.priority} size={12} />
@@ -460,20 +484,17 @@ export function DependencyTree({
             <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
               <StatusCircle stateType={tooltipInfo.issue.stateType} color={tooltipInfo.issue.stateColor} progress={tooltipInfo.issue.stateProgress} size={12} />
               <span>{tooltipInfo.issue.stateName}</span>
-              <span>&middot;</span>
-              <DurationBadge issue={tooltipInfo.issue} alwaysShowComparison />
             </div>
-            {tooltipInfo.issue.belowStartBreakdown.length > 0 && (
-              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
-                {tooltipInfo.issue.belowStartBreakdown.map((b) => (
-                  <div key={b.stateName}>
-                    {b.stateName}: {b.days % 1 === 0 ? b.days : b.days.toFixed(1)} working day{b.days === 1 ? "" : "s"}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-              <span>{tooltipInfo.issue.daysSpent === null ? "~" : ""}{formatDate(dayToDate(schedule.startDate, Math.floor(tooltipInfo.issue.startDay)))}{tooltipInfo.issue.startedAtRaw ? `, ${formatParisTimeOfDay(tooltipInfo.issue.startedAtRaw)}` : ""}</span><span style={{ position: "relative", top: -2 }}>→</span><span>{!tooltipInfo.issue.done ? "~" : ""}{formatDate(dayToDate(schedule.startDate, Math.ceil(tooltipInfo.issue.endDay) - 1))}{tooltipInfo.issue.endedAtRaw ? `, ${formatParisTimeOfDay(tooltipInfo.issue.endedAtRaw)}` : ""}</span>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+              {tooltipInfo.issue.startedAt && (
+                <div>{TIMELINE_LABELS.enteredStartedStatus}: {formatIsoDate(tooltipInfo.issue.startedAt)}</div>
+              )}
+              {tooltipInfo.issue.dueDate && (
+                <div>{TIMELINE_LABELS.due}: {formatIsoDate(tooltipInfo.issue.dueDate)}</div>
+              )}
+              {tooltipInfo.issue.completedAt && (
+                <div>{TIMELINE_LABELS.completed}: {formatIsoDate(tooltipInfo.issue.completedAt)}</div>
+              )}
             </div>
             {!tooltipInfo.issue.done && tooltipInfo.issue.blockedBy.filter((b) => !b.done).length > 0 && (
               <div style={{ color: "var(--text-muted)", marginTop: 4, fontSize: 11 }}>

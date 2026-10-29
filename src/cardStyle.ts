@@ -1,4 +1,4 @@
-import type { ScheduledIssue } from "./scheduler";
+import type { TreeIssue } from "./treeFacts";
 
 /**
  * Card backgrounds only carry concrete state: the blocked stripe, the done stripe and the
@@ -23,7 +23,7 @@ export function hexToRgba(hex: string, alpha: number, fallback = "var(--surface-
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-/** Background tint for a ScheduledIssue's current status — ongoing only. Returns null otherwise. */
+/** Background tint for a TreeIssue's current status — ongoing only. Returns null otherwise. */
 export function ongoingStatusBg(stateType: string, done: boolean, stateColor: string): string | null {
   if (done) return null;
   if (stateType !== "started") return null;
@@ -35,7 +35,7 @@ export function ongoingStatusBg(stateType: string, done: boolean, stateColor: st
  * Ongoing issues (started, not done) are NOT shown as blocked even if they have undone blockers —
  * work has visibly begun anyway.
  */
-export function isBlockedDisplay(issue: Pick<ScheduledIssue, "stateType" | "done" | "blockedBy">): boolean {
+export function isBlockedDisplay(issue: Pick<TreeIssue, "stateType" | "done" | "blockedBy">): boolean {
   if (issue.done) return false;
   if (issue.stateType === "started") return false;
   return issue.blockedBy.some((b) => !b.done);
@@ -46,7 +46,7 @@ export function isBlockedDisplay(issue: Pick<ScheduledIssue, "stateType" | "done
  * Only relevant when writes are enabled and the issue actually has blockers to remove.
  */
 export function canShowRemoveBlockerMenu(
-  issue: Pick<ScheduledIssue, "blockedBy">,
+  issue: Pick<TreeIssue, "blockedBy">,
   writeEnabled: boolean,
 ): boolean {
   return writeEnabled && issue.blockedBy.length > 0;
@@ -58,8 +58,8 @@ export function canShowRemoveBlockerMenu(
  * don't send Linear a redundant mutation.
  */
 export function wouldDuplicateBlocker(
-  source: Pick<ScheduledIssue, "blockedBy">,
-  target: Pick<ScheduledIssue, "id">,
+  source: Pick<TreeIssue, "blockedBy">,
+  target: Pick<TreeIssue, "id">,
 ): boolean {
   return source.blockedBy.some((b) => b.id === target.id);
 }

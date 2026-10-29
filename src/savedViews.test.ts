@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
-import { createSavedView, loadActiveViewId, loadPlannerQuery, readSavedViewMode, saveActiveViewId, savePlannerQuery } from "./savedViews";
+import {
+  createSavedView,
+  DEFAULT_DISPLAY_SETTINGS,
+  DISPLAY_STORAGE_KEY,
+  loadActiveViewId,
+  loadDisplaySettings,
+  loadPlannerQuery,
+  readSavedViewMode,
+  saveActiveViewId,
+  saveDisplaySettings,
+  savePlannerQuery,
+} from "./savedViews";
 
 beforeEach(() => {
   const store = new Map<string, string>();
@@ -71,5 +82,49 @@ describe("createSavedView", () => {
     expect(body).not.toContain("customViewUpdate");
     expect(body).not.toContain("customViewDelete");
     expect(calls[0]?.url).not.toContain("api.linear.app");
+  });
+});
+
+describe("display settings", () => {
+  it("reads linear-planner:display", () => {
+    localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({ mode: "overview" }));
+    localStorage.setItem("linear-planner:A", JSON.stringify({ mode: "dates" }));
+    expect(loadDisplaySettings("A").mode).toBe("overview");
+  });
+
+  it("reads linear-planner:A when the display key is missing and the URL id is A", () => {
+    localStorage.setItem("linear-planner:A", JSON.stringify({ mode: "overview" }));
+    expect(loadDisplaySettings("A").mode).toBe("overview");
+  });
+
+  it("returns the defaults when neither display nor a URL project key is present", () => {
+    expect(loadDisplaySettings(null)).toEqual(DEFAULT_DISPLAY_SETTINGS);
+  });
+
+  it("maps a stored treeGlobal mode to tree", () => {
+    localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({ mode: "treeGlobal" }));
+    expect(loadDisplaySettings().mode).toBe("tree");
+  });
+
+  it("maps the old workers mode to dates", () => {
+    localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({ mode: "workers" }));
+    expect(loadDisplaySettings().mode).toBe("dates");
+  });
+
+  it("keeps the done states and drops the ones that are not strings", () => {
+    localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({ doneStateIds: ["s1", 7, null] }));
+    expect(loadDisplaySettings().doneStateIds).toEqual(["s1"]);
+  });
+
+  it("writes linear-planner:display and does not write a per-project key", () => {
+    saveDisplaySettings({ ...DEFAULT_DISPLAY_SETTINGS, mode: "tree" });
+    expect(JSON.parse(localStorage.getItem(DISPLAY_STORAGE_KEY) ?? "{}").mode).toBe("tree");
+    expect(localStorage.getItem("linear-planner:A")).toBeNull();
+  });
+
+  it("round-trips the display settings", () => {
+    const settings = { ...DEFAULT_DISPLAY_SETTINGS, mode: "tree" as const, drawCrossMilestoneDeps: true, doneStateIds: ["s1"] };
+    saveDisplaySettings(settings);
+    expect(loadDisplaySettings()).toEqual(settings);
   });
 });

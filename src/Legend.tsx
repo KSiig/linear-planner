@@ -1,12 +1,12 @@
 import { useMemo } from "react";
-import type { ScheduledIssue } from "./scheduler";
+import type { TreeIssue } from "./treeFacts";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon } from "./CardIcons";
 import { BLOCKED_STRIPE, DONE_STRIPE } from "./cardStyle";
 import { useNarrowLayout } from "./useNarrowLayout";
 
 interface LegendProps {
-  issues: ScheduledIssue[];
+  issues: TreeIssue[];
 }
 
 export function Legend({ issues }: LegendProps) {

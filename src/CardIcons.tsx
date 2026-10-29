@@ -1,6 +1,3 @@
-import { type CSSProperties } from "react";
-import type { ScheduledIssue } from "./scheduler";
-
 /** Linear-style priority bars (always 3 bars, unfilled ones for lower priority) */
 export function PriorityIcon({ priority, size = 14 }: { priority: number; size?: number }) {
   if (priority === 0) return null;
@@ -68,31 +65,6 @@ export function AssigneeAvatar({ url, name, size = 16 }: { url: string | null; n
       {initials}
     </span>
   );
-}
-
-/**
- * Colored duration label: green = done within estimate, orange = exceeded, yellow = in progress.
- * `alwaysShowComparison` keeps the `spent/estimate` form even when they match — useful in tooltips.
- */
-export function DurationBadge({ issue, style, alwaysShowComparison = false }: { issue: ScheduledIssue; style?: CSSProperties; alwaysShowComparison?: boolean }) {
-  const spent = issue.daysSpent;
-  const hasSpent = issue.hasEstimate && spent != null;
-  if (!hasSpent) {
-    if (!issue.hasEstimate) return <span style={style}>No estimate</span>;
-    return <span style={style}>{issue.estimate} working day{issue.estimate > 1 ? "s" : ""}</span>;
-  }
-  if (issue.done) {
-    const color = spent > issue.estimate ? "#f97316" : spent < issue.estimate ? "#22c55e" : "#15803d";
-    return <span style={{ ...style, color, fontWeight: 600 }}>{spent}/{issue.estimate} working days</span>;
-  }
-  if (spent !== issue.estimate) {
-    const color = spent > issue.estimate ? "#f97316" : "#eab308";
-    return <span style={{ ...style, color, fontWeight: 600 }}>{spent}/{issue.estimate} working days</span>;
-  }
-  if (alwaysShowComparison) {
-    return <span style={{ ...style, color: "#15803d", fontWeight: 600 }}>{spent}/{issue.estimate} working days</span>;
-  }
-  return <span style={style}>{issue.estimate} working day{issue.estimate > 1 ? "s" : ""}</span>;
 }
 
 export function BlockedIcon({ size = 12 }: { size?: number }) {

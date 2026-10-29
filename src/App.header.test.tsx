@@ -21,8 +21,6 @@ vi.mock("./linear", () => ({
   fetchProjectCycles: vi.fn(async () => []),
   fetchProjectMilestones: vi.fn(async () => []),
   fetchProjectWorkflowStates: vi.fn(async () => []),
-  fetchIssueStateHistory: vi.fn(async () => ({ transitions: new Map(), assignedIntervals: new Map(), noCount: new Map() })),
-  endDateFromTransitions: () => null,
   createBlockingRelation: vi.fn(),
   deleteIssueRelation: vi.fn(),
   addBlocksRelation: (issues: unknown[]) => issues,

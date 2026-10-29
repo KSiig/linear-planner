@@ -1,6 +1,7 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkNode, ElkExtendedEdge } from "elkjs/lib/elk-api";
-import type { ScheduleResult, ScheduledIssue, MilestoneInfo } from "./scheduler";
+import type { LinearMilestone } from "./linear";
+import type { TreeIssue } from "./treeFacts";
 
 export const NODE_WIDTH = 168;
 export const NODE_HEIGHT = 56;
@@ -9,7 +10,7 @@ export const PADDING = 12;
 const elk = new ELK();
 
 export interface TreeNode {
-  issue: ScheduledIssue;
+  issue: TreeIssue;
   x: number;
   y: number;
   parentIds: string[];
@@ -27,7 +28,7 @@ export interface LayoutEdge {
 }
 
 export interface MilestoneBand {
-  milestone: MilestoneInfo | null;
+  milestone: LinearMilestone | null;
   name: string;
   yStart: number;
   yEnd: number;
@@ -41,35 +42,59 @@ export interface TreeLayoutResult {
   contentHeight: number;
 }
 
-function buildParentsAndMilestones(schedule: ScheduleResult) {
+/**
+ * The issues of every milestone, in milestone order, and the blockers of each issue.
+ *
+ * The milestone order is the project's own milestone order. A milestone that
+ * only shows up on an issue is folded in by its own sort order, so its issues
+ * never vanish.
+ */
+function buildParentsAndMilestones(issues: TreeIssue[], milestones: readonly LinearMilestone[]) {
+  const issueIds = new Set(issues.map((issue) => issue.id));
   const parentsOf = new Map<string, string[]>();
-  for (const issue of schedule.issues) {
+  for (const issue of issues) {
     parentsOf.set(
       issue.id,
-      issue.blockedBy
-        .map((b) => schedule.issues.find((i) => i.identifier === b.identifier)?.id)
-        .filter((id): id is string => !!id),
+      issue.blockedBy.map((b) => b.id).filter((id) => issueIds.has(id)),
     );
   }
 
+  const sortOrder = new Map<string, number>();
+  const names = new Map<string, string>();
+  for (const milestone of milestones) {
+    sortOrder.set(milestone.id, milestone.sortOrder);
+    names.set(milestone.id, milestone.name);
+  }
+  for (const issue of issues) {
+    const milestone = issue.milestone;
+    if (!milestone) continue;
+    if (!sortOrder.has(milestone.id)) sortOrder.set(milestone.id, milestone.sortOrder);
+    if (!names.has(milestone.id)) names.set(milestone.id, milestone.name);
+  }
+
   const milestoneOrder: Array<{ id: string | null; name: string }> = [
-    ...schedule.milestones.map((m) => ({ id: m.id as string | null, name: m.name })),
+    ...Array.from(sortOrder.entries())
+      .sort((a, b) => a[1] - b[1])
+      .map(([id]) => ({ id, name: names.get(id) ?? "" })),
   ];
-  const noMsIssues = schedule.issues.filter((i) => !i.milestone);
+  const noMsIssues = issues.filter((i) => !i.milestone);
   if (noMsIssues.length > 0) milestoneOrder.push({ id: null, name: "No milestone" });
 
-  const msIssuesMap = new Map<string | null, ScheduledIssue[]>();
+  const msIssuesMap = new Map<string | null, TreeIssue[]>();
   for (const ms of milestoneOrder) {
-    const msIssues = schedule.issues.filter((i) => (i.milestone?.id ?? null) === ms.id);
+    const msIssues = issues.filter((i) => (i.milestone?.id ?? null) === ms.id);
     msIssuesMap.set(ms.id, msIssues);
   }
 
   return { parentsOf, milestoneOrder, msIssuesMap };
 }
 
-async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayoutResult> {
-  const { parentsOf, milestoneOrder, msIssuesMap } = buildParentsAndMilestones(schedule);
-  const issueIdSet = new Set(schedule.issues.map((i) => i.id));
+async function layoutAllMilestones(
+  issues: TreeIssue[],
+  milestones: readonly LinearMilestone[],
+): Promise<TreeLayoutResult> {
+  const { parentsOf, milestoneOrder, msIssuesMap } = buildParentsAndMilestones(issues, milestones);
+  const issueIdSet = new Set(issues.map((i) => i.id));
 
   // Partition each issue by its milestone's index. Smaller partition = earlier (higher up).
   const partitionByIssue = new Map<string, number>();
@@ -79,7 +104,7 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
     }
   });
 
-  const issuesInLayout = schedule.issues.filter((i) => partitionByIssue.has(i.id));
+  const issuesInLayout = issues.filter((i) => partitionByIssue.has(i.id));
   if (issuesInLayout.length === 0) {
     return { nodes: [], edges: [], bands: [], contentWidth: 0, contentHeight: 0 };
   }
@@ -126,7 +151,7 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
 
   const layout = (await elk.layout(elkGraph)) as ElkNode;
 
-  const issueMap = new Map(schedule.issues.map((i) => [i.id, i]));
+  const issueMap = new Map(issues.map((i) => [i.id, i]));
   const nodeMap = new Map<string, TreeNode>();
   for (const child of layout.children ?? []) {
     const issue = issueMap.get(child.id);
@@ -166,7 +191,7 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
   for (const ms of milestoneOrder) {
     const msIssues = msIssuesMap.get(ms.id) ?? [];
     if (msIssues.length === 0) continue;
-    const milestone = ms.id ? schedule.milestones.find((m) => m.id === ms.id) ?? null : null;
+    const milestone = ms.id ? milestones.find((m) => m.id === ms.id) ?? null : null;
     let maxY = prevEnd;
     for (const issue of msIssues) {
       const node = nodeMap.get(issue.id);
@@ -184,16 +209,22 @@ async function layoutAllMilestones(schedule: ScheduleResult): Promise<TreeLayout
 }
 
 /** Layout the dependency tree as a single graph spanning all milestones. */
-export function layoutDependencyTree(schedule: ScheduleResult): Promise<TreeLayoutResult> {
-  return layoutAllMilestones(schedule);
+export function layoutDependencyTree(
+  issues: TreeIssue[],
+  milestones: readonly LinearMilestone[],
+): Promise<TreeLayoutResult> {
+  return layoutAllMilestones(issues, milestones);
 }
 
 /**
  * Layout the dependency tree as independent per-milestone subgraphs stacked vertically.
  * No cross-milestone edges are drawn — each milestone's tree stands on its own.
  */
-export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult): Promise<TreeLayoutResult> {
-  const { parentsOf, milestoneOrder, msIssuesMap } = buildParentsAndMilestones(schedule);
+export async function layoutDependencyTreePerMilestone(
+  issues: TreeIssue[],
+  milestones: readonly LinearMilestone[],
+): Promise<TreeLayoutResult> {
+  const { parentsOf, milestoneOrder, msIssuesMap } = buildParentsAndMilestones(issues, milestones);
 
   const BAND_TOP_PAD = 8;
   const BAND_BOTTOM_PAD = 8;
@@ -207,7 +238,7 @@ export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult)
 
   for (const ms of milestoneOrder) {
     const msIssues = msIssuesMap.get(ms.id) ?? [];
-    const milestone = ms.id ? schedule.milestones.find((m) => m.id === ms.id) ?? null : null;
+    const milestone = ms.id ? milestones.find((m) => m.id === ms.id) ?? null : null;
     const yStart = cursor;
 
     if (msIssues.length === 0) {
@@ -276,9 +307,9 @@ export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult)
         from,
         to,
         sections: elkEdge.sections?.map((s) => ({
-          startPoint: { x: (s.startPoint?.x ?? 0) + PADDING, y: (s.startPoint?.y ?? 0) + dy },
-          endPoint: { x: (s.endPoint?.x ?? 0) + PADDING, y: (s.endPoint?.y ?? 0) + dy },
-          bendPoints: s.bendPoints?.map((bp) => ({ x: (bp.x ?? 0) + PADDING, y: (bp.y ?? 0) + dy })),
+          startPoint: { x: (s.startPoint?.x ?? 0) + PADDING, y: (s.startPoint?.y ?? 0) + PADDING },
+          endPoint: { x: (s.endPoint?.x ?? 0) + PADDING, y: (s.endPoint?.y ?? 0) + PADDING },
+          bendPoints: s.bendPoints?.map((bp) => ({ x: (bp.x ?? 0) + PADDING, y: (bp.y ?? 0) + PADDING })),
         })),
       });
     }
@@ -297,24 +328,22 @@ export async function layoutDependencyTreePerMilestone(schedule: ScheduleResult)
  * Layout the dependency tree as one single global graph, ignoring milestones entirely.
  * Useful for getting an at-a-glance view of the full DAG without milestone vertical separation.
  */
-export async function layoutDependencyTreeGlobal(schedule: ScheduleResult): Promise<TreeLayoutResult> {
-  const issueIdSet = new Set(schedule.issues.map((i) => i.id));
+export async function layoutDependencyTreeGlobal(issues: TreeIssue[]): Promise<TreeLayoutResult> {
+  const issueIdSet = new Set(issues.map((i) => i.id));
   const parentsOf = new Map<string, string[]>();
-  for (const issue of schedule.issues) {
+  for (const issue of issues) {
     parentsOf.set(
       issue.id,
-      issue.blockedBy
-        .map((b) => schedule.issues.find((i) => i.identifier === b.identifier)?.id)
-        .filter((id): id is string => !!id),
+      issue.blockedBy.map((b) => b.id).filter((id) => issueIdSet.has(id)),
     );
   }
 
-  if (schedule.issues.length === 0) {
+  if (issues.length === 0) {
     return { nodes: [], edges: [], bands: [], contentWidth: 0, contentHeight: 0 };
   }
 
   const elkEdges: Array<{ id: string; sources: string[]; targets: string[] }> = [];
-  for (const issue of schedule.issues) {
+  for (const issue of issues) {
     for (const pid of parentsOf.get(issue.id) ?? []) {
       if (!issueIdSet.has(pid)) continue;
       elkEdges.push({ id: `e-${pid}-${issue.id}`, sources: [pid], targets: [issue.id] });
@@ -330,13 +359,13 @@ export async function layoutDependencyTreeGlobal(schedule: ScheduleResult): Prom
       "elk.layered.layering.strategy": "NETWORK_SIMPLEX",
       "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+      "elk.edgeRouting": "ORTHOGONAL",
       "elk.layered.spacing.nodeNodeBetweenLayers": "22",
       "elk.spacing.nodeNode": "8",
-      "elk.edgeRouting": "ORTHOGONAL",
       "elk.layered.spacing.edgeEdgeBetweenLayers": "6",
       "elk.layered.spacing.edgeNodeBetweenLayers": "8",
     },
-    children: schedule.issues.map((issue) => ({
+    children: issues.map((issue) => ({
       id: issue.id,
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
@@ -346,7 +375,7 @@ export async function layoutDependencyTreeGlobal(schedule: ScheduleResult): Prom
 
   const layout = (await elk.layout(elkGraph)) as ElkNode;
 
-  const issueMap = new Map(schedule.issues.map((i) => [i.id, i]));
+  const issueMap = new Map(issues.map((i) => [i.id, i]));
   const nodeMap = new Map<string, TreeNode>();
   for (const child of layout.children ?? []) {
     const issue = issueMap.get(child.id);
