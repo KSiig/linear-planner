@@ -3,21 +3,12 @@ import { StatusCircle } from "./StatusCircle";
 import { isBlockedDisplay } from "./cardStyle";
 import { groupUndatedIssues } from "./undatedGroups";
 
-function estimateLabel(issue: ScheduledIssue): string {
-  if (!issue.hasEstimate) return "No estimate";
-  const days = issue.estimate;
-  const text = days % 1 === 0 ? `${days}` : days.toFixed(1);
-  return `${text}d`;
-}
-
 export function UndatedList({
   issues,
   milestones,
-  showCapacityForecast,
 }: {
   issues: ScheduledIssue[];
   milestones: MilestoneInfo[];
-  showCapacityForecast: boolean;
 }) {
   const groups = groupUndatedIssues(issues, milestones);
   const count = groups.reduce((sum, group) => sum + group.issues.length, 0);
@@ -42,9 +33,7 @@ export function UndatedList({
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{count}</span>
         </div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-          {showCapacityForecast
-            ? "Hatched bars on the timeline are a capacity forecast, not a deadline."
-            : "These issues are not placed on the timeline."}
+          These issues are not placed on the timeline.
         </div>
       </div>
       <div style={{ maxHeight: 420, overflowY: "auto" }}>
@@ -74,7 +63,6 @@ export function UndatedList({
                 <span style={{ fontWeight: 600, flexShrink: 0 }}>{issue.identifier}</span>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{issue.title}</span>
                 {isBlockedDisplay(issue) && <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>Blocked</span>}
-                <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{estimateLabel(issue)}</span>
               </a>
             ))}
           </div>

@@ -1,14 +1,14 @@
 import type { ScheduledIssue } from "./scheduler";
 
+/**
+ * Card backgrounds only carry concrete state: the blocked stripe, the done stripe and the
+ * ongoing status tint. Estimates, workdays and capacity forecasts are not presented.
+ */
+
 export const BLOCKED_STRIPE =
   "repeating-linear-gradient(-45deg, transparent 0px, transparent 5px, rgba(150,150,150,0.15) 5px, rgba(150,150,150,0.15) 10px)";
-export const NO_ESTIMATE_BG =
-  "repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(234,145,50,0.13) 5px, rgba(234,145,50,0.13) 10px)";
 export const DONE_STRIPE =
   "repeating-linear-gradient(-45deg, transparent 0px, transparent 5px, rgba(74,222,128,0.18) 5px, rgba(74,222,128,0.18) 10px)";
-/** Blue hatch for a capacity-forecast bar: packed from today, not a due date. */
-export const FORECAST_HATCH =
-  "repeating-linear-gradient(45deg, transparent 0px, transparent 4px, rgba(96,165,250,0.35) 4px, rgba(96,165,250,0.35) 8px)";
 
 /** Convert hex color (#rgb or #rrggbb) to rgba with the given alpha. Returns fallback if parse fails. */
 export function hexToRgba(hex: string, alpha: number, fallback = "var(--surface-hover)"): string {

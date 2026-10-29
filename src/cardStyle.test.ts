@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker } from "./cardStyle";
+import * as cardStyle from "./cardStyle";
+import { isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker, ongoingStatusBg } from "./cardStyle";
 
 const blocker = (overrides: { id?: string; identifier?: string; title?: string; done?: boolean; relationId?: string } = {}) => ({
   id: overrides.id ?? "blocker-id",
@@ -53,6 +54,46 @@ describe("isBlockedDisplay", () => {
     expect(
       isBlockedDisplay({ stateType: "unstarted", done: false, blockedBy: [doneBlocker, undoneBlocker] }),
     ).toBe(true);
+  });
+});
+
+describe("card backgrounds", () => {
+  it("no longer exports the no-estimate background", () => {
+    expect("NO_ESTIMATE_BG" in cardStyle).toBe(false);
+  });
+
+  it("no longer exports the capacity-forecast hatch", () => {
+    expect("FORECAST_HATCH" in cardStyle).toBe(false);
+  });
+
+  it("keeps the blocked stripe", () => {
+    expect(cardStyle.BLOCKED_STRIPE).toContain("repeating-linear-gradient");
+  });
+
+  it("keeps the done stripe", () => {
+    expect(cardStyle.DONE_STRIPE).toContain("repeating-linear-gradient");
+  });
+
+  it("uses a different stripe for blocked and done", () => {
+    expect(cardStyle.BLOCKED_STRIPE).not.toBe(cardStyle.DONE_STRIPE);
+  });
+});
+
+describe("ongoingStatusBg", () => {
+  it("tints an ongoing issue with its status colour", () => {
+    expect(ongoingStatusBg("started", false, "#ff0000")).toBe("rgba(255, 0, 0, 0.15)");
+  });
+
+  it("returns null for a done issue", () => {
+    expect(ongoingStatusBg("started", true, "#ff0000")).toBeNull();
+  });
+
+  it("returns null for an issue that has not started", () => {
+    expect(ongoingStatusBg("backlog", false, "#ff0000")).toBeNull();
+  });
+
+  it("falls back to the surface colour when the status colour cannot be parsed", () => {
+    expect(ongoingStatusBg("started", false, "not-a-colour")).toBe("var(--surface-hover)");
   });
 });
 

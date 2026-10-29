@@ -14,7 +14,11 @@ function sortUndated(issues: ScheduledIssue[]): ScheduledIssue[] {
   return [...issues].sort((a, b) => rankPriority(a.priority) - rankPriority(b.priority) || a.identifier.localeCompare(b.identifier));
 }
 
-/** Unstarted issues with no due date, in milestone order, then priority. */
+/**
+ * Issues the scheduler could not place on the date axis — no due date and not started —
+ * grouped by milestone, then ordered by priority and identifier. The scheduler flags them
+ * with `isCapacityForecast`; the list itself shows no forecast bar and no date.
+ */
 export function groupUndatedIssues(
   issues: ScheduledIssue[],
   milestones: Array<Pick<MilestoneInfo, "id" | "name" | "sortOrder">>,
