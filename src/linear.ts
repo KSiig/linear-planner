@@ -1,4 +1,4 @@
-import { getAccessToken } from "./auth";
+import { getAccessToken, isOAuthScopeError } from "./auth";
 
 const LINEAR_API = "https://api.linear.app/graphql";
 
@@ -64,6 +64,100 @@ export interface LinearCycle {
   number: number;
   startsAt: string;
   endsAt: string;
+}
+
+/** How a Linear API failure is classified. */
+export type LinearApiErrorKind =
+  /** Linear refused the request because the token lacks the `write` scope. */
+  | "oauth-scope"
+  /** Linear rejected the input of the request. */
+  | "validation"
+  /** The request never reached Linear. */
+  | "network"
+  /** An ordinary GraphQL error. */
+  | "graphql";
+
+/**
+ * A Linear API failure that carries its classification.
+ *
+ * The `kind` keeps an OAuth scope rejection apart from a rejected input, a
+ * request that never arrived and an ordinary GraphQL error.
+ */
+export class LinearApiError extends Error {
+  readonly kind: LinearApiErrorKind;
+
+  constructor(kind: LinearApiErrorKind, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "LinearApiError";
+    this.kind = kind;
+  }
+}
+
+/** Linear's own error taxonomy, as reported in `extensions.type`. */
+const LINEAR_VALIDATION_ERROR_TYPES = new Set(["InvalidInput", "INVALID_INPUT", "BAD_USER_INPUT"]);
+const LINEAR_NETWORK_ERROR_TYPES = new Set(["NetworkError", "NETWORK_ERROR"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** The message of a failure, whether it was thrown or handed over as an object. */
+function getErrorMessage(value: unknown): string | null {
+  if (value instanceof Error) return value.message;
+  if (isRecord(value) && typeof value.message === "string") return value.message;
+  return null;
+}
+
+/**
+ * The error types Linear reports for a failure.
+ *
+ * Linear tags its errors with `extensions.type` — its own error taxonomy —
+ * and sometimes with `extensions.code`. Either can sit on the failure itself
+ * or on one of its GraphQL error entries.
+ */
+function getLinearErrorTypes(value: unknown): string[] {
+  const holders: unknown[] = [value];
+  if (isRecord(value)) {
+    if (Array.isArray(value.errors)) holders.push(...value.errors);
+    if (isRecord(value.response)) {
+      holders.push(value.response);
+      if (Array.isArray(value.response.errors)) holders.push(...value.response.errors);
+    }
+  }
+
+  const types: string[] = [];
+  for (const holder of holders) {
+    if (!isRecord(holder) || !isRecord(holder.extensions)) continue;
+    for (const key of ["type", "code"]) {
+      const code = holder.extensions[key];
+      if (typeof code === "string") types.push(code);
+    }
+  }
+  return types;
+}
+
+/**
+ * Classify a Linear API failure.
+ *
+ * The scope check is the one from `src/auth.ts` and is used as it is: a
+ * failure caused by an old read-only token is an `oauth-scope` failure and
+ * never a validation failure. The remaining kinds are decided here: a request
+ * that never reached Linear is a `network` failure, a rejected input is a
+ * `validation` failure, and everything else is an ordinary `graphql` failure.
+ */
+export function classifyLinearError(error: unknown): LinearApiErrorKind {
+  if (error instanceof LinearApiError) return error.kind;
+  if (isOAuthScopeError(error)) return "oauth-scope";
+
+  const types = getLinearErrorTypes(error);
+  if (types.some((type) => LINEAR_NETWORK_ERROR_TYPES.has(type))) return "network";
+  // A request that never left the browser fails with a `TypeError`.
+  if (error instanceof TypeError) return "network";
+  if (types.some((type) => LINEAR_VALIDATION_ERROR_TYPES.has(type))) return "validation";
+
+  const message = getErrorMessage(error);
+  if (message && /invalid input/i.test(message)) return "validation";
+  return "graphql";
 }
 
 async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
@@ -148,7 +242,14 @@ export async function fetchProjectMilestones(projectId: string): Promise<LinearM
   return data.project.projectMilestones.nodes;
 }
 
-async function fetchTeamWorkflowStates(teamId: string): Promise<LinearWorkflowState[]> {
+/**
+ * The workflow states of one team.
+ *
+ * The states belong to the team, so they are the only valid choices for the
+ * issues of that team. A project can span teams, and a state of another team
+ * is not a valid state for an issue.
+ */
+export async function fetchTeamWorkflowStates(teamId: string): Promise<LinearWorkflowState[]> {
   const data = await gql<{
     team: { states: { nodes: LinearWorkflowState[] } };
   }>(
@@ -440,6 +541,37 @@ export async function deleteIssueRelation(relationId: string): Promise<void> {
   `,
     { id: relationId },
   );
+}
+
+/**
+ * Move an issue to a workflow state.
+ *
+ * `stateId` has to be a workflow state of the issue's own team. A project can
+ * span teams, so the merged states of a project are not a valid source: the
+ * states of the issue team are.
+ *
+ * The mutation reports the outcome through its `success` flag. A response
+ * without that flag is not a success, so the failure is reported as an error
+ * instead. Requires the `write` OAuth scope.
+ */
+export async function issueUpdate(issueId: string, stateId: string): Promise<void> {
+  const data = await gql<{ issueUpdate?: { success?: boolean } | null }>(
+    `
+    mutation IssueUpdate($id: String!, $stateId: String!) {
+      issueUpdate(id: $id, input: { stateId: $stateId }) {
+        success
+      }
+    }
+  `,
+    { id: issueId, stateId },
+  );
+
+  const result = data?.issueUpdate;
+  if (result?.success === true) return;
+  if (!result) {
+    throw new LinearApiError("graphql", `Linear returned no state change result for issue ${issueId}.`);
+  }
+  throw new LinearApiError("graphql", `Linear did not move issue ${issueId} to state ${stateId}.`);
 }
 
 /**

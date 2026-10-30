@@ -1,10 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { isPlannableIssue, addBlocksRelation, removeRelation, fetchProjectIssues } from "./linear";
+import {
+  isPlannableIssue,
+  addBlocksRelation,
+  removeRelation,
+  fetchProjectIssues,
+  fetchTeamWorkflowStates,
+  issueUpdate,
+  classifyLinearError,
+  LinearApiError,
+} from "./linear";
 import type { LinearIssue } from "./linear";
 
 // The Linear API client reads the access token through `./auth`; stub it so the
-// fetch mock below is the only thing the request depends on.
-vi.mock("./auth", () => ({ getAccessToken: vi.fn(async () => "test-token") }));
+// fetch mock below is the only thing the request depends on. The rest of the
+// module stays real, so the scope-error detection is the one `./auth` owns.
+vi.mock("./auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./auth")>();
+  return { ...actual, getAccessToken: vi.fn(async () => "test-token") };
+});
 
 function withLabels(...names: string[]) {
   return {
@@ -252,5 +265,152 @@ describe("fetchProjectIssues", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestBody(1).variables).toEqual({ projectId: "proj-1", after: "cursor-1" });
     expect(issues.map((i) => i.identifier)).toEqual(["A-1"]);
+  });
+});
+
+describe("fetchTeamWorkflowStates", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function requestBody(callIndex: number) {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex][1].body));
+  }
+
+  it("asks for the states of one team and keeps their ids", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          team: {
+            states: {
+              nodes: [
+                { id: "state-todo", name: "Todo", type: "unstarted", position: 1, color: "#ccc" },
+                { id: "state-done", name: "Done", type: "completed", position: 3, color: "#5e6ad2" },
+              ],
+            },
+          },
+        },
+      }),
+    });
+
+    const states = await fetchTeamWorkflowStates("team-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = requestBody(0);
+    expect(body.variables).toEqual({ teamId: "team-1" });
+    expect(body.query).toMatch(/team\(id:\s*\$teamId\)/);
+    expect(body.query).toMatch(/states\s*\{/);
+
+    expect(states.map((state) => state.id)).toEqual(["state-todo", "state-done"]);
+    expect(states[0]).toEqual({
+      id: "state-todo",
+      name: "Todo",
+      type: "unstarted",
+      position: 1,
+      color: "#ccc",
+    });
+  });
+});
+
+describe("issueUpdate", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function requestBody(callIndex: number) {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex][1].body));
+  }
+
+  function okResponse(data: unknown) {
+    return { ok: true, status: 200, json: async () => ({ data }) };
+  }
+
+  it("sends the issue id and the state id", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await issueUpdate("issue-1", "state-done");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = requestBody(0);
+    expect(body.variables).toEqual({ id: "issue-1", stateId: "state-done" });
+    expect(body.query).toMatch(/issueUpdate\(id:\s*\$id/);
+    expect(body.query).toMatch(/success/);
+  });
+
+  it("resolves when Linear confirms the change", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await expect(issueUpdate("issue-1", "state-done")).resolves.toBeUndefined();
+  });
+
+  it("throws when Linear reports success as false", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: false } }));
+
+    await expect(issueUpdate("issue-1", "state-done")).rejects.toThrow(
+      /did not move issue issue-1 to state state-done/,
+    );
+  });
+
+  it("throws when the response carries no result", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+
+    await expect(issueUpdate("issue-1", "state-done")).rejects.toThrow(/no state change result/);
+  });
+
+  it("throws when the response carries GraphQL errors", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ errors: [{ message: "Entity not found" }] }),
+    });
+
+    await expect(issueUpdate("issue-1", "state-done")).rejects.toThrow("Entity not found");
+  });
+
+  it("reports a rejected state change as a classified API error", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: false } }));
+
+    const error = await issueUpdate("issue-1", "state-done").catch((e) => e);
+
+    expect(error).toBeInstanceOf(LinearApiError);
+    expect((error as LinearApiError).kind).toBe("graphql");
+  });
+});
+
+describe("classifyLinearError", () => {
+  it("keeps the classification of an already classified error", () => {
+    expect(classifyLinearError(new LinearApiError("network", "boom"))).toBe("network");
+  });
+
+  it("recognizes an OAuth scope rejection", () => {
+    expect(classifyLinearError(new Error("Invalid scope: write required"))).toBe("oauth-scope");
+  });
+
+  it("recognizes a rejected input", () => {
+    expect(classifyLinearError(new Error("Invalid input: issueId is required"))).toBe("validation");
+  });
+
+  it("recognizes a request that never reached Linear", () => {
+    expect(classifyLinearError(new TypeError("Failed to fetch"))).toBe("network");
+  });
+
+  it("treats an ordinary GraphQL error as a GraphQL error", () => {
+    expect(classifyLinearError(new Error("Entity not found"))).toBe("graphql");
   });
 });
