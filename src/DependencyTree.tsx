@@ -81,7 +81,6 @@ export function DependencyTree({
   today = localToday(new Date()),
   variant = "split",
   includeDone = true,
-  writeEnabled = false,
   onCreateBlockingRelation,
   onDeleteRelation,
 }: {
@@ -97,7 +96,6 @@ export function DependencyTree({
   today?: string;
   variant?: TreeVariant;
   includeDone?: boolean;
-  writeEnabled?: boolean;
   /** Called after the user confirms a drag-drop: dragged card becomes blocked by target card. */
   onCreateBlockingRelation?: (blockerId: string, blockedId: string) => Promise<void>;
   /** Called when the user removes an existing "blocked by" relation via the context menu. */
@@ -335,7 +333,7 @@ export function DependencyTree({
                 <div
                   key={node.issue.id}
                   data-card
-                  draggable={writeEnabled && !!onCreateBlockingRelation}
+                  draggable={!!onCreateBlockingRelation}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "link";
                     e.dataTransfer.setData("text/plain", node.issue.id);
@@ -362,7 +360,7 @@ export function DependencyTree({
                   }}
                   onContextMenu={(e) => {
                     if (!onDeleteRelation) return;
-                    if (!canShowRemoveBlockerMenu(node.issue, writeEnabled)) return;
+                    if (!canShowRemoveBlockerMenu(node.issue)) return;
                     e.preventDefault();
                     setContextMenu({ x: e.clientX, y: e.clientY, issue: node.issue });
                     setTooltipInfo(null);
@@ -396,7 +394,7 @@ export function DependencyTree({
                     flexDirection: "column",
                     justifyContent: "flex-start",
                     gap: 1,
-                    cursor: writeEnabled ? (draggingId === node.issue.id ? "grabbing" : "grab") : "pointer",
+                    cursor: onCreateBlockingRelation ? (draggingId === node.issue.id ? "grabbing" : "grab") : "pointer",
                     opacity: (node.issue.done ? 0.5 : 1) * (draggingId === node.issue.id ? 0.4 : 1),
                     fontSize: 11,
                     overflow: "hidden",

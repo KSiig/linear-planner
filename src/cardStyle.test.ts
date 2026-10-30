@@ -98,21 +98,17 @@ describe("ongoingStatusBg", () => {
 });
 
 describe("canShowRemoveBlockerMenu", () => {
-  it("returns false when writes are disabled", () => {
-    expect(canShowRemoveBlockerMenu({ blockedBy: [blocker()] }, false)).toBe(false);
-  });
-
   it("returns false when the issue has no blockers (nothing to remove)", () => {
-    expect(canShowRemoveBlockerMenu({ blockedBy: [] }, true)).toBe(false);
+    expect(canShowRemoveBlockerMenu({ blockedBy: [] })).toBe(false);
   });
 
-  it("returns true when writes are enabled and the issue has at least one blocker", () => {
-    expect(canShowRemoveBlockerMenu({ blockedBy: [blocker()] }, true)).toBe(true);
+  it("returns true when the issue has at least one blocker", () => {
+    expect(canShowRemoveBlockerMenu({ blockedBy: [blocker()] })).toBe(true);
   });
 
   it("includes done blockers — removing a satisfied dependency is still a valid action", () => {
     const doneB = blocker({ id: "x", done: true, relationId: "rel-x" });
-    expect(canShowRemoveBlockerMenu({ blockedBy: [doneB] }, true)).toBe(true);
+    expect(canShowRemoveBlockerMenu({ blockedBy: [doneB] })).toBe(true);
   });
 });
 

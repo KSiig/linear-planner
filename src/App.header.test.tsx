@@ -2,18 +2,21 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./auth", () => ({
-  startLogin: vi.fn(),
-  handleOAuthCallback: vi.fn(),
-  getCallbackPath: () => "/callback",
-  isAuthenticated: () => true,
-  clearTokens: vi.fn(),
-  logout: vi.fn(async () => {}),
-  isWriteEnabled: () => false,
-  setWriteEnabled: vi.fn(),
-  isAutoRefreshEnabled: () => false,
-  setAutoRefreshEnabled: vi.fn(),
-}));
+vi.mock("./auth", async () => {
+  const actual = await vi.importActual<typeof import("./auth")>("./auth");
+  return {
+    ...actual,
+    startLogin: vi.fn(),
+    handleOAuthCallback: vi.fn(),
+    getCallbackPath: () => "/callback",
+    isAuthenticated: () => true,
+    clearTokens: vi.fn(),
+    logout: vi.fn(async () => {}),
+    isAutoRefreshEnabled: () => false,
+    setAutoRefreshEnabled: vi.fn(),
+    reauthorizeWithWriteScope: vi.fn(),
+  };
+});
 
 vi.mock("./linear", () => ({
   fetchProjects: vi.fn(async () => [{ id: "A", name: "Project A", teams: { nodes: [] }, hasIssues: true }]),
