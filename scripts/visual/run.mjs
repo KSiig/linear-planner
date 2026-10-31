@@ -31,6 +31,7 @@ import {
   STATES,
   ISSUES,
   MILESTONES,
+  USERS,
 } from './fixture.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -59,7 +60,41 @@ const SURFACES = Object.freeze([
   Object.freeze({ view: 'tree',        state: 'populated', needsAuth: true  }),
   Object.freeze({ view: 'settings',    state: 'panel',     needsAuth: true  }),
   Object.freeze({ view: 'overview',    state: 'collapsed', needsAuth: true  }),
+  Object.freeze({ view: 'quicklook',   state: 'open',      needsAuth: true  }),
 ]);
+
+// The headings of the ten Overview cards, in the order the registry shows
+// them. The card is named by its heading, so the list proves that every card
+// of the registry rendered.
+const OVERVIEW_CARD_HEADINGS = Object.freeze([
+  'Overdue',
+  'Next',
+  'Soon',
+  'No date',
+  'Later',
+  'Blocked',
+  'Recently Updated',
+  'Recently Completed',
+  'Deadlines',
+  'Milestones',
+]);
+
+// The issue the quick-look opens. The Overview shows it in the Next card.
+const QUICK_LOOK_ISSUE = 'SII-92';
+
+// The wording of the surfaces the milestone removed. A capture must not carry
+// any of it. The wording of the Dates view is "Deadline timeline", so the
+// removed "Timeline" tab is checked as a word of its own.
+const REMOVED_WORDING = Object.freeze([
+  'People in parallel',
+  'Capacity forecast',
+  'Working days',
+  'Working day',
+  'Estimate',
+]);
+
+// The removed tab, as a word of its own.
+const REMOVED_TAB_WORDING = /\bTimeline\b/;
 
 const THEMES = Object.freeze(['dark', 'light']);
 
@@ -164,12 +199,10 @@ async function buildOnce() {
 // projects query also contains `issues(first: 1)` as an emptiness probe.
 function dispatchGraphQL(query, variables) {
   if (query.includes('projects(')) return projectPage();
-  // OverviewTeamIssues also contains issues(first:. Match it first so the
-  // project issues page stays the project(id) response.
-  if (query.includes('OverviewTeamIssues')) return overviewTeamIssuesPage();
   if (query.includes('issues(first:')) return issuesPage();
+  if (query.includes('issue(id:')) return issuePage(variables);
   if (query.includes('projectMilestones')) return milestonesPage();
-  if (query.includes('cycles(')) return cyclesPage();
+  if (query.includes('members(')) return membersPage();
   if (query.includes('states')) return statesPage();
   if (query.includes('project(id:') || query.includes('teams')) return projectTeamsPage();
   // Any other query is a spec defect — log and fail the run.
@@ -211,17 +244,6 @@ function issuesPage() {
   };
 }
 
-function overviewTeamIssuesPage() {
-  return {
-    team: {
-      issues: {
-        nodes: ISSUES,
-        pageInfo: { hasNextPage: false, endCursor: null },
-      },
-    },
-  };
-}
-
 function milestonesPage() {
   return {
     project: {
@@ -232,10 +254,24 @@ function milestonesPage() {
   };
 }
 
-function cyclesPage() {
+function issuePage(variables) {
+  const id = variables && variables.id;
+  const issue = ISSUES.find((row) => row.id === id) ?? null;
+  return { issue };
+}
+
+function membersPage() {
   return {
     team: {
-      cycles: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      members: {
+        nodes: USERS.map((user) => ({
+          id: user.id,
+          name: user.name,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          active: user.active,
+        })),
+      },
     },
   };
 }
@@ -347,12 +383,64 @@ async function assertHeaderChrome(page) {
   if (await page.getByRole('button', { name: 'Tree (global)' }).count() !== 0) {
     fail('Tree (global) tab is still present');
   }
+  if (await page.getByRole('button', { name: 'Timeline', exact: true }).count() !== 0) {
+    fail('Timeline tab is still present');
+  }
   const labels = await page.locator('button[aria-label="Overview"]').locator('xpath=..').locator('button').evaluateAll(
     (els) => els.map((el) => el.getAttribute('aria-label')),
   );
   if (labels[0] !== 'Overview') {
     fail(`first tab is ${labels[0] ?? 'missing'}, expected Overview`);
   }
+  const tabs = labels.join(',');
+  if (tabs !== 'Overview,Dates,Tree') {
+    fail(`tabs are ${tabs}, expected Overview,Dates,Tree`);
+  }
+}
+
+/**
+ * The wording of the surfaces the milestone removed must not be on the page.
+ *
+ * The check reads the rendered text, so it covers every surface the capture
+ * takes, not only the ones the assertion names.
+ */
+async function assertNoRemovedWording(page) {
+  const text = await page.evaluate(() => document.body.innerText);
+  const haystack = text.toLowerCase();
+  for (const phrase of REMOVED_WORDING) {
+    if (haystack.includes(phrase.toLowerCase())) {
+      fail(`page still shows the removed wording "${phrase}"`);
+    }
+  }
+  if (REMOVED_TAB_WORDING.test(text)) {
+    fail('page still shows the removed "Timeline" wording');
+  }
+}
+
+/**
+ * Put the trigger row near the top of the viewport.
+ *
+ * The quick-look is anchored below its trigger and is limited by the height
+ * of the viewport, so a row near the top leaves the dialog the room it needs
+ * to show the whole issue. The sticky header of the narrow layout is cleared.
+ */
+async function scrollRowToTop(page, row) {
+  await row.evaluate((el) => {
+    const header = document.querySelector('header');
+    const sticky = header !== null && getComputedStyle(header).position === 'sticky';
+    const top = sticky && header ? header.getBoundingClientRect().bottom + 8 : 8;
+    const delta = el.getBoundingClientRect().top - top;
+    let node = el.parentElement;
+    while (node) {
+      const style = getComputedStyle(node);
+      if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1) {
+        node.scrollTop += delta;
+        return;
+      }
+      node = node.parentElement;
+    }
+    window.scrollBy(0, delta);
+  });
 }
 
 async function captureSurface({ page, port, surface, theme, viewportName }) {
@@ -403,13 +491,19 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     await assertHeaderChrome(page);
     await page.getByLabel('Settings').click();
     await page.getByText('Done states').waitFor({ state: 'visible', timeout: 15_000 });
+    // The two due-window boundaries, the done states, the auto-refresh switch
+    // and the disconnect button are the whole panel.
+    await page.getByLabel('Next window (days)').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByLabel('Soon window (days)').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByText('Auto-refresh').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('button', { name: 'Disconnect' }).waitFor({ state: 'visible', timeout: 15_000 });
   } else if (surface.view === 'overview') {
     await waitForLoadingGone(page);
     await assertNoErrorBanners(page);
     await page.getByRole('button', { name: 'Overview', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await assertHeaderChrome(page);
     await page.getByRole('button', { name: 'Overview' }).click();
-    for (const heading of ['Overdue', 'Next', 'Soon', 'No date', 'Later']) {
+    for (const heading of OVERVIEW_CARD_HEADINGS) {
       await page.getByRole('heading', { level: 2, name: heading }).waitFor({ state: 'visible', timeout: 15_000 });
     }
     const stack = page.getByRole('region', { name: 'Overview' });
@@ -421,7 +515,27 @@ async function captureSurface({ page, port, surface, theme, viewportName }) {
     if (documentScrolls || stackScrolls) {
       fail('overview stack scrolls horizontally');
     }
+  } else if (surface.view === 'quicklook') {
+    await waitForLoadingGone(page);
+    await assertNoErrorBanners(page);
+    await page.getByRole('button', { name: 'Overview', exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+    await assertHeaderChrome(page);
+    await page.getByRole('button', { name: 'Overview' }).click();
+    await page.getByRole('heading', { level: 2, name: 'Next' }).waitFor({ state: 'visible', timeout: 15_000 });
+    // The row of the issue in the Next card. The row is a link that opens the
+    // shared quick-look, on every surface that shows issues.
+    const row = page.getByRole('link', { name: new RegExp(`^${QUICK_LOOK_ISSUE} `) }).first();
+    await row.waitFor({ state: 'visible', timeout: 15_000 });
+    await scrollRowToTop(page, row);
+    await row.click();
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible', timeout: 15_000 });
+    await dialog.getByRole('heading', { name: /Min Købmand fetcher/ }).waitFor({ state: 'visible', timeout: 15_000 });
+    await dialog.getByText('Blocked by', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+    await dialog.getByRole('link', { name: 'Open in Linear' }).waitFor({ state: 'visible', timeout: 15_000 });
   }
+
+  await assertNoRemovedWording(page);
 
   const outPath = `${CAPTURE_ROOT}/${surface.view}/${viewportName}/${theme}/${surface.state}.png`;
   await mkdir(dirname(outPath), { recursive: true });
