@@ -14,6 +14,7 @@ import {
 } from "./deadlineTimelineLayout";
 import { shortDay, shortMonthYear } from "./views/overview/calendar";
 import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "./issueQuickLookContext";
+import { ISSUE_TOUCH_CLASS, useIssueLongPressController } from "./issueInteraction";
 
 /** Thickness of the "In started status" span, in pixels. The span is thin on purpose. */
 const SPAN_THICKNESS = 4;
@@ -136,15 +137,19 @@ function Marker({ marker, issue }: { marker: DeadlineTimelineMarker; issue: Line
   const top = marker.lane * (LANE_HEIGHT + LANE_GAP) + (LANE_HEIGHT - thickness) / 2;
   const appearance = markerAppearance(marker);
   const surface = useIssueQuickLookSurface();
+  const longPress = useIssueLongPressController();
   const link = issueQuickLookLink(surface, {
     id: marker.issueId,
     url: issue?.url ?? "",
     // The marker names the fact it draws, and the issue it belongs to.
     name: issue ? `${marker.accessibleName} — ${issue.state.name}` : marker.accessibleName,
   });
+  const press = longPress.bind({ url: link.href, onClick: link.onClick });
   return (
     <a
       {...link}
+      {...press}
+      className={ISSUE_TOUCH_CLASS}
       title={marker.accessibleName}
       data-fact={marker.fact}
       data-date={marker.startDate}
@@ -197,6 +202,7 @@ function GroupBand({ group, issuesById }: { group: DeadlineTimelineGroup; issues
 /** The open issues that carry no due date. */
 function UndatedIssues({ issues }: { issues: DeadlineTimelineIssue[] }) {
   const surface = useIssueQuickLookSurface();
+  const longPress = useIssueLongPressController();
   if (issues.length === 0) return null;
   return (
     <section
@@ -234,10 +240,13 @@ function UndatedIssues({ issues }: { issues: DeadlineTimelineIssue[] }) {
             url: entry.issue.url,
             name: issueAccessibleName(entry.issue.identifier, entry.issue.title, entry.issue.state.name),
           });
+          const press = longPress.bind({ url: link.href, onClick: link.onClick });
           return (
             <a
               key={entry.issue.id}
               {...link}
+              {...press}
+              className={ISSUE_TOUCH_CLASS}
               style={{
                 display: "flex",
                 alignItems: "center",

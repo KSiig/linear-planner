@@ -7,9 +7,10 @@ import { MilestoneHeader, MilestoneBandLabel } from "./MilestoneHeader";
 import { useNarrowLayout } from "./useNarrowLayout";
 import { localToday } from "./views/overview/calendar";
 import { Legend } from "./Legend";
-import { BLOCKED_STRIPE, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker } from "./cardStyle";
+import { BLOCKED_STRIPE, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay, wouldDuplicateBlocker } from "./cardStyle";
 import { layoutDependencyTree, layoutDependencyTreeGlobal, layoutDependencyTreePerMilestone, edgePath, NODE_WIDTH, NODE_HEIGHT, type TreeLayoutResult } from "./treeLayout";
 import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "./issueQuickLookContext";
+import { ISSUE_TOUCH_CLASS, useIssueLongPressController } from "./issueInteraction";
 
 const LABEL_WIDTH = 220;
 const BAND_HEADER_H = 36;
@@ -72,7 +73,6 @@ export function DependencyTree({
   variant = "split",
   includeDone = true,
   onCreateBlockingRelation,
-  onDeleteRelation,
 }: {
   /** The Linear issues of the project, exactly as Linear reported them. */
   issues?: readonly LinearIssue[];
@@ -88,8 +88,6 @@ export function DependencyTree({
   includeDone?: boolean;
   /** Called after the user confirms a drag-drop: dragged card becomes blocked by target card. */
   onCreateBlockingRelation?: (blockerId: string, blockedId: string) => Promise<void>;
-  /** Called when the user removes an existing "blocked by" relation via the context menu. */
-  onDeleteRelation?: (relationId: string) => Promise<void>;
 }) {
   // The facts the tree draws: the issues themselves and the relations between them.
   const treeIssues = useMemo(
@@ -120,22 +118,6 @@ export function DependencyTree({
   const [pendingDrop, setPendingDrop] = useState<{ dragged: TreeIssue; target: TreeIssue } | null>(null);
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; issue: TreeIssue } | null>(null);
-
-  // Close the context menu on any global click / scroll / escape.
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [contextMenu]);
 
   // When a card is hovered, highlight the edges directly connected to it.
   const isEdgeActive = (e: TreeLayoutResult["edges"][number]) =>
@@ -178,6 +160,7 @@ export function DependencyTree({
 
   const narrow = useNarrowLayout();
   const surface = useIssueQuickLookSurface();
+  const longPress = useIssueLongPressController();
   const view = useMemo(() => (narrow ? withBandHeaders(layout, BAND_HEADER_H) : layout), [narrow, layout]);
   const contentWidth = Math.max(view.contentWidth, 400);
   const contentHeight = Math.max(view.contentHeight, 100);
@@ -324,13 +307,18 @@ export function DependencyTree({
                 url: node.issue.url,
                 name: issueAccessibleName(node.issue.identifier, node.issue.title, node.issue.stateName),
               });
+              const press = longPress.bind({ url: link.href, onClick: link.onClick });
               return (
                 <a
                   key={node.issue.id}
                   data-card
                   {...link}
+                  {...press}
+                  className={ISSUE_TOUCH_CLASS}
                   draggable={!!onCreateBlockingRelation}
                   onDragStart={(e) => {
+                    // A drag is not a long press.
+                    longPress.cancel();
                     e.dataTransfer.effectAllowed = "link";
                     e.dataTransfer.setData("text/plain", node.issue.id);
                     setDraggingId(node.issue.id);
@@ -353,13 +341,6 @@ export function DependencyTree({
                     setPendingDrop({ dragged, target: node.issue });
                     setDraggingId(null);
                     setDragOverId(null);
-                  }}
-                  onContextMenu={(e) => {
-                    if (!onDeleteRelation) return;
-                    if (!canShowRemoveBlockerMenu(node.issue)) return;
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, issue: node.issue });
-                    setHoveredId(null);
                   }}
                   onMouseEnter={() => {
                     if (draggingId) return; // the card follows the pointer while a card is dragged
@@ -445,47 +426,6 @@ export function DependencyTree({
       </div>
 
       {legend}
-
-      {contextMenu && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed", left: contextMenu.x, top: contextMenu.y, zIndex: 150,
-            background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.3)", padding: "4px 0", minWidth: 240, maxWidth: 360,
-            fontSize: 13, color: "var(--text)",
-          }}
-        >
-          {contextMenu.issue.blockedBy.map((b) => (
-            <button
-              key={b.relationId || `${b.id}-${b.identifier}`}
-              disabled={!b.relationId}
-              onClick={async () => {
-                if (!onDeleteRelation || !b.relationId) return;
-                setContextMenu(null);
-                try {
-                  await onDeleteRelation(b.relationId);
-                } catch (err) {
-                  window.alert(err instanceof Error ? err.message : "Failed to delete relation");
-                }
-              }}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "8px 12px", border: "none", background: "transparent",
-                cursor: b.relationId ? "pointer" : "not-allowed",
-                color: "var(--text)", fontSize: 13,
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                opacity: b.relationId ? 1 : 0.5,
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--surface-hover)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-              title={`Remove blocked by ${b.identifier}: ${b.title}`}
-            >
-              Remove blocked by issue: <span style={{ fontFamily: "monospace", color: "var(--text-muted)" }}>{b.identifier}</span> {b.title}
-            </button>
-          ))}
-        </div>
-      )}
 
       {pendingDrop && (
         <div

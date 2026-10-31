@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CardModel, CardModule, CardSection } from "./contract";
 import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "../../../../issueQuickLookContext";
+import { ISSUE_TOUCH_CLASS, useIssueLongPressController } from "../../../../issueInteraction";
 import "./index.css";
 
 function rowCount(model: CardModel): number {
@@ -23,6 +24,7 @@ function visibleSections(sections: CardSection[], limit: number | null): CardSec
 export function CardShell({ card, model }: { card: CardModule; model: CardModel | null }) {
   const [expanded, setExpanded] = useState(false);
   const surface = useIssueQuickLookSurface();
+  const longPress = useIssueLongPressController();
   if (model === null) return null;
 
   const appearance = card.appearance ?? {};
@@ -64,11 +66,13 @@ export function CardShell({ card, model }: { card: CardModule; model: CardModel 
                   ? issueAccessibleName(issue.identifier, issue.title, issue.state.name)
                   : `${row.identifier} ${row.title}`,
               });
+              const press = longPress.bind({ url: link.href, onClick: link.onClick });
               return (
                 <a
                   key={row.id}
                   {...link}
-                  className="overview-card-row"
+                  {...press}
+                  className={`overview-card-row ${ISSUE_TOUCH_CLASS}`}
                 >
                   <span className="overview-card-id">{row.identifier}</span>
                   <span className="overview-card-title">{row.title}</span>

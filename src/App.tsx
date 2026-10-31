@@ -32,6 +32,7 @@ import { ViewMenu } from "./views/filters/ViewMenu";
 import { IssueQuickLook } from "./IssueQuickLook";
 import { toIssueQuickLookData, type IssueQuickLookData } from "./issueQuickLookModel";
 import { IssueQuickLookSurfaceContext } from "./issueQuickLookContext";
+import { IssueLongPressContext, useIssueLongPressController } from "./issueInteraction";
 
 const modeSettingStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" };
 
@@ -77,6 +78,27 @@ function FilterChip({ pressed, onClick, children }: { pressed: boolean; onClick:
 
 // Don't auto-refresh if the data was already refreshed within this window.
 const AUTO_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
+
+/**
+ * Drop a relation from the local issue data, on both sides of the relation.
+ *
+ * A relation has two sides: the "blocks" side of the blocker and the "blocked
+ * by" side of the blocked issue. `removeRelation` clears the first one, and
+ * the quick-look reads the second one, so it is cleared here as well. The
+ * relation id is the same on both sides.
+ */
+function removeRelationEverywhere(issues: LinearIssue[], relationId: string): LinearIssue[] {
+  return removeRelation(issues, relationId).map((issue) => {
+    if (!issue.inverseRelations.nodes.some((relation) => relation.id === relationId)) return issue;
+    return {
+      ...issue,
+      inverseRelations: {
+        ...issue.inverseRelations,
+        nodes: issue.inverseRelations.nodes.filter((relation) => relation.id !== relationId),
+      },
+    };
+  });
+}
 
 /**
  * The data the quick-look holds before the user picks an issue.
@@ -411,7 +433,7 @@ export default function App() {
     }
     // Optimistic update: drop the relation node from local issue data instead of refetching. The
     // tree redraws from projectIssues without unmounting, keeping the scroll position.
-    setProjectIssues((prev) => removeRelation(prev, relationId));
+    setProjectIssues((prev) => removeRelationEverywhere(prev, relationId));
   }, [loadProject]);
 
   const handleStatusChange = useCallback(async (issueId: string, stateId: string) => {
@@ -489,6 +511,9 @@ export default function App() {
   }, [projectIssues]);
 
   const narrow = useNarrowLayout();
+
+  // One gesture for the whole app: every issue row of every surface shares it.
+  const longPressController = useIssueLongPressController();
 
   const toggleDoneState = useCallback((stateId: string, checked: boolean) => {
     setDoneStateIds((current) => (
@@ -741,37 +766,38 @@ export default function App() {
               onStatusChange={handleStatusChange}
               onRemoveBlocker={handleDeleteRelation}
               trigger={(triggerProps) => (
-                <IssueQuickLookSurfaceContext.Provider
-                  value={{
-                    trigger: triggerProps,
-                    selectedIssueId,
-                    openIssue: (issueId: string, event: ReactMouseEvent<HTMLElement>) => {
-                      setSelectedIssueId(issueId);
-                      triggerProps.onClick(event);
-                    },
-                    issueById: (issueId: string) => issuesById.get(issueId),
-                  }}
-                >
-                  {!loading && !error && mode === "dates" && (
-                    <DeadlineTimeline issues={projectIssues} />
-                  )}
-                  {!loading && !error && mode === "tree" && (
-                    <DependencyTree
-                      issues={projectIssues}
-                      milestones={projectMilestones}
-                      doneStateIds={doneStateIdSet}
-                      startedStates={startedStates}
-                      today={today}
-                      variant={drawCrossMilestoneDeps ? "split" : "individual"}
-                      includeDone={includeDoneIssuesTree}
-                      onCreateBlockingRelation={handleCreateBlockingRelation}
-                      onDeleteRelation={handleDeleteRelation}
-                    />
-                  )}
-                  {mode === "overview" && (
-                    <Overview issues={overviewIssues} />
-                  )}
-                </IssueQuickLookSurfaceContext.Provider>
+                <IssueLongPressContext.Provider value={longPressController}>
+                  <IssueQuickLookSurfaceContext.Provider
+                    value={{
+                      trigger: triggerProps,
+                      selectedIssueId,
+                      openIssue: (issueId: string, event: ReactMouseEvent<HTMLElement>) => {
+                        setSelectedIssueId(issueId);
+                        triggerProps.onClick(event);
+                      },
+                      issueById: (issueId: string) => issuesById.get(issueId),
+                    }}
+                  >
+                    {!loading && !error && mode === "dates" && (
+                      <DeadlineTimeline issues={projectIssues} />
+                    )}
+                    {!loading && !error && mode === "tree" && (
+                      <DependencyTree
+                        issues={projectIssues}
+                        milestones={projectMilestones}
+                        doneStateIds={doneStateIdSet}
+                        startedStates={startedStates}
+                        today={today}
+                        variant={drawCrossMilestoneDeps ? "split" : "individual"}
+                        includeDone={includeDoneIssuesTree}
+                        onCreateBlockingRelation={handleCreateBlockingRelation}
+                      />
+                    )}
+                    {mode === "overview" && (
+                      <Overview issues={overviewIssues} />
+                    )}
+                  </IssueQuickLookSurfaceContext.Provider>
+                </IssueLongPressContext.Provider>
               )}
             />
           </div>
