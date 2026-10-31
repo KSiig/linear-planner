@@ -1,4 +1,4 @@
-import { DUE_WINDOW_OPTIONS, matchesDueWindow, type DueWindow } from "./dueWindows";
+import { DUE_WINDOW_OPTIONS, getDueWindowConfig, matchesDueWindow, type DueWindow, type DueWindowConfig } from "./dueWindows";
 
 // The due windows live in the due-window module. The type is re-exported here
 // because the query keeps the window in its filters.
@@ -103,6 +103,7 @@ export function matchesQuery(
   issue: QueryIssue,
   query: PlannerQuery,
   today: string,
+  config: DueWindowConfig = getDueWindowConfig(),
 ): boolean {
   const projectId = issue.project?.id ?? "";
   if (projectId === "") return false;
@@ -129,7 +130,7 @@ export function matchesQuery(
 
   if (query.milestoneIds.length > 0 && !query.milestoneIds.includes(issue.projectMilestone?.id ?? "")) return false;
 
-  if (query.dueWindow !== null && !matchesDueWindow(issue.dueDate, query.dueWindow, today)) return false;
+  if (query.dueWindow !== null && !matchesDueWindow(issue.dueDate, query.dueWindow, today, config)) return false;
 
   return true;
 }

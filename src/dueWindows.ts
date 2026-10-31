@@ -10,18 +10,40 @@
 export type DueWindow = "overdue" | "next" | "soon" | "later" | "none";
 
 /**
- * The window boundaries as day offsets from today, both ends inclusive.
+ * The boundaries of the Next and Soon windows, counted in days from today.
  *
- * `null` means the window has no bound on that side. These offsets are the
- * only place the day counts are written down.
+ * The boundaries are browser-global. One browser uses the same boundaries for
+ * every project it opens.
  */
-const DUE_WINDOW_OFFSETS: Record<DueWindow, { start: number | null; end: number | null }> = {
-  overdue: { start: null, end: -1 },
-  next: { start: 0, end: 14 },
-  soon: { start: 15, end: 45 },
-  later: { start: 46, end: null },
-  none: { start: null, end: null },
-};
+export interface DueWindowConfig {
+  /** The last day the Next window covers, today included. */
+  nextEndDays: number;
+  /** The last day the Soon window covers. */
+  soonEndDays: number;
+}
+
+/** The boundaries a browser uses until someone changes them. */
+export const DEFAULT_DUE_WINDOW_CONFIG: DueWindowConfig = { nextEndDays: 14, soonEndDays: 45 };
+
+/** The key the boundaries live under. The version marks the stored shape. */
+export const DUE_WINDOW_CONFIG_STORAGE_KEY = "linear-planner:due-windows:v1";
+
+/** The smallest Next boundary a browser accepts. */
+export const NEXT_END_DAYS_MIN = 1;
+
+/** The largest Next boundary a browser accepts. */
+export const NEXT_END_DAYS_MAX = 90;
+
+/** The largest Soon boundary a browser accepts. */
+export const SOON_END_DAYS_MAX = 365;
+
+/**
+ * The boundaries in effect in this browser.
+ *
+ * They are read from storage the first time they are asked for, and they are
+ * replaced by every change the person makes.
+ */
+let currentConfig: DueWindowConfig | null = null;
 
 /** The Due filter options, in the order the filter lists them. */
 export const DUE_WINDOW_OPTIONS: ReadonlyArray<{ id: DueWindow; label: string }> = [
@@ -35,6 +57,152 @@ export const DUE_WINDOW_OPTIONS: ReadonlyArray<{ id: DueWindow; label: string }>
 /** The name of a window, as the filter and the chips show it. */
 export function dueWindowLabel(window: DueWindow): string {
   return DUE_WINDOW_OPTIONS.find((option) => option.id === window)?.label ?? window;
+}
+
+/**
+ * Why a pair of boundaries cannot be used, or null when the pair is usable.
+ *
+ * The Next boundary counts the days the Next window covers, and the Soon
+ * boundary counts the days the Soon window ends on. Soon always starts after
+ * Next ends, so the Soon boundary is never below the Next boundary.
+ */
+export function dueWindowConfigError(config: DueWindowConfig): string | null {
+  if (!Number.isInteger(config.nextEndDays)) return "Next must be a whole number of days.";
+  if (config.nextEndDays < NEXT_END_DAYS_MIN || config.nextEndDays > NEXT_END_DAYS_MAX) {
+    return `Next must be between ${NEXT_END_DAYS_MIN} and ${NEXT_END_DAYS_MAX} days.`;
+  }
+  if (!Number.isInteger(config.soonEndDays)) return "Soon must be a whole number of days.";
+  if (config.soonEndDays < config.nextEndDays) return `Soon must be at least ${config.nextEndDays} days.`;
+  if (config.soonEndDays > SOON_END_DAYS_MAX) return `Soon must be at most ${SOON_END_DAYS_MAX} days.`;
+  return null;
+}
+
+/** True when the value holds a pair of boundaries the planner can use. */
+function isDueWindowConfig(value: unknown): value is DueWindowConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { nextEndDays?: unknown; soonEndDays?: unknown };
+  if (typeof candidate.nextEndDays !== "number" || typeof candidate.soonEndDays !== "number") return false;
+  const config: DueWindowConfig = { nextEndDays: candidate.nextEndDays, soonEndDays: candidate.soonEndDays };
+  return dueWindowConfigError(config) === null;
+}
+
+/** The whole number a settings field holds, or null when it holds none. */
+function parseWholeDays(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "" || !/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+/** Which settings field a message is about. */
+export type DueWindowField = "next" | "soon";
+
+/** Why a pair of settings fields cannot be used. */
+export interface DueWindowDraftError {
+  /** The field the message is about. */
+  field: DueWindowField;
+  /** The message the settings panel shows. */
+  reason: string;
+  /**
+   * Whether the field goes back to the value that is in effect.
+   *
+   * A value that can never be used is put back, so the field never keeps a
+   * rejected value. A value that only conflicts with the other field stays,
+   * so it can be finished and the other field can be raised to meet it.
+   */
+  revert: boolean;
+}
+
+/** The boundaries two settings fields hold, or why they cannot be used. */
+export type DueWindowDraftResult =
+  | { ok: true; config: DueWindowConfig }
+  | { ok: false; error: DueWindowDraftError };
+
+/**
+ * The boundaries two settings fields hold, or the reason they cannot be used.
+ *
+ * A field that holds no whole number of days is rejected, and so is a pair
+ * the windows cannot use.
+ */
+export function parseDueWindowDraft(next: string, soon: string): DueWindowDraftResult {
+  const nextEndDays = parseWholeDays(next);
+  if (nextEndDays === null) {
+    return { ok: false, error: { field: "next", reason: "Next must be a whole number of days.", revert: false } };
+  }
+  const soonEndDays = parseWholeDays(soon);
+  if (soonEndDays === null) {
+    return { ok: false, error: { field: "soon", reason: "Soon must be a whole number of days.", revert: false } };
+  }
+  const config: DueWindowConfig = { nextEndDays, soonEndDays };
+  const reason = dueWindowConfigError(config);
+  if (reason !== null) {
+    // A Next boundary outside its own range can never be used. A Soon
+    // boundary below the Next one only conflicts with the other field, so it
+    // stays in the field until the other field meets it.
+    const nextOutOfRange =
+      nextEndDays < NEXT_END_DAYS_MIN || nextEndDays > NEXT_END_DAYS_MAX;
+    return {
+      ok: false,
+      error: { field: nextOutOfRange ? "next" : "soon", reason, revert: nextOutOfRange },
+    };
+  }
+  return { ok: true, config };
+}
+
+/** The boundaries a stored raw value holds, or the standard ones. */
+function parseStoredConfig(raw: string | null): DueWindowConfig {
+  if (raw === null) return DEFAULT_DUE_WINDOW_CONFIG;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isDueWindowConfig(parsed)) return DEFAULT_DUE_WINDOW_CONFIG;
+    return parsed;
+  } catch {
+    return DEFAULT_DUE_WINDOW_CONFIG;
+  }
+}
+
+/**
+ * The boundaries stored in this browser, and the ones in effect.
+ *
+ * A browser that stored nothing, or stored something unreadable, uses the
+ * standard boundaries.
+ */
+export function loadDueWindowConfig(): DueWindowConfig {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(DUE_WINDOW_CONFIG_STORAGE_KEY);
+  } catch {
+    raw = null;
+  }
+  currentConfig = parseStoredConfig(raw);
+  return currentConfig;
+}
+
+/**
+ * The boundaries in effect right now.
+ *
+ * The surfaces that group issues by window read them from here, so every
+ * surface uses the same boundaries.
+ */
+export function getDueWindowConfig(): DueWindowConfig {
+  if (currentConfig === null) return loadDueWindowConfig();
+  return currentConfig;
+}
+
+/**
+ * Store the boundaries and make them the ones in effect.
+ *
+ * The boundaries are browser-global: they apply to every project. An invalid
+ * pair is rejected, and the boundaries in effect stay the previous ones.
+ */
+export function saveDueWindowConfig(config: DueWindowConfig): boolean {
+  if (dueWindowConfigError(config) !== null) return false;
+  currentConfig = { nextEndDays: config.nextEndDays, soonEndDays: config.soonEndDays };
+  try {
+    localStorage.setItem(DUE_WINDOW_CONFIG_STORAGE_KEY, JSON.stringify(currentConfig));
+  } catch {
+    // A browser that refuses storage keeps the boundaries for this session.
+  }
+  return true;
 }
 
 function pad(value: number): string {
@@ -76,9 +244,43 @@ export interface DueWindowRange {
   end: string | null;
 }
 
-/** The days a window covers, counted from today. */
-export function dueWindowRange(window: DueWindow, today: string): DueWindowRange {
-  const offsets = DUE_WINDOW_OFFSETS[window];
+/**
+ * The window boundaries as day offsets from today, both ends inclusive.
+ *
+ * `null` means the window has no bound on that side. The offsets follow the
+ * boundaries, so they are computed rather than written down.
+ */
+function dueWindowOffsets(window: DueWindow, config: DueWindowConfig): { start: number | null; end: number | null } {
+  switch (window) {
+    case "overdue":
+      return { start: null, end: -1 };
+    case "next":
+      return { start: 0, end: config.nextEndDays };
+    case "soon":
+      return { start: config.nextEndDays + 1, end: config.soonEndDays };
+    case "later":
+      return { start: config.soonEndDays + 1, end: null };
+    case "none":
+      return { start: null, end: null };
+  }
+}
+
+/**
+ * The days a window covers, counted from today.
+ *
+ * The boundaries decide how far Next and Soon reach. Overdue is every day
+ * before today and No date is every day without a due date, so neither one
+ * depends on the boundaries.
+ *
+ * Without a configuration the window uses the standard boundaries. The cards
+ * that follow the configured boundaries pass the current configuration.
+ */
+export function dueWindowRange(
+  window: DueWindow,
+  today: string,
+  config: DueWindowConfig = DEFAULT_DUE_WINDOW_CONFIG,
+): DueWindowRange {
+  const offsets = dueWindowOffsets(window, config);
   return {
     start: offsets.start === null ? null : addCalendarDays(today, offsets.start),
     end: offsets.end === null ? null : addCalendarDays(today, offsets.end),
@@ -86,11 +288,16 @@ export function dueWindowRange(window: DueWindow, today: string): DueWindowRange
 }
 
 /** Whether a due date falls in the window, counted from today. */
-export function matchesDueWindow(dueDate: string | null | undefined, window: DueWindow, today: string): boolean {
+export function matchesDueWindow(
+  dueDate: string | null | undefined,
+  window: DueWindow,
+  today: string,
+  config: DueWindowConfig = DEFAULT_DUE_WINDOW_CONFIG,
+): boolean {
   const day = dueDay(dueDate);
   if (window === "none") return day === null;
   if (day === null) return false;
-  const range = dueWindowRange(window, today);
+  const range = dueWindowRange(window, today, config);
   if (range.start !== null && day < range.start) return false;
   if (range.end !== null && day > range.end) return false;
   return true;
