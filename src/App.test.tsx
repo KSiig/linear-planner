@@ -526,4 +526,55 @@ describe("the due-window settings", () => {
     // The card loads again with the new boundary, without the page reloading.
     expect(await screen.findByRole("heading", { name: "Next" })).toBeTruthy();
   });
+
+  it("keeps a local issue edit when the due windows change", async () => {
+    const blockedIssue: LinearIssue = {
+      ...issueFixture,
+      inverseRelations: {
+        nodes: [{
+          id: "rel-1",
+          type: "blocks",
+          relatedIssue: { id: "i2", identifier: "ABC-2", title: "Blocked issue", state: { type: "unstarted" } },
+        }],
+      },
+    };
+    vi.mocked(fetchScopedIssues).mockResolvedValue([blockedIssue]);
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+
+    // The blocker is removed from the quick-look. That is a local edit: it is
+    // in the loaded issues, not in the issues as they were fetched.
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove blocker ABC-2" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove blocker ABC-2" })).toBeNull());
+
+    // The due windows change, so the loaded issues are filtered again.
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.change(await screen.findByLabelText("Next window (days)"), { target: { value: "30" } });
+
+    // The quick-look is still open, and the local edit is still in place: the
+    // blocker does not come back.
+    expect(screen.queryByRole("dialog", { name: "Ship the dates view" })).not.toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove blocker ABC-2" })).toBeNull());
+  });
+
+  it("clears the error when the fields go back to the saved values", async () => {
+    const next = await openSettings();
+    // A Soon boundary below the Next one cannot be used. The value stays in
+    // the field, so the other field can be raised to meet it.
+    fireEvent.change(next, { target: { value: "60" } });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+
+    // The field loses focus, so the draft goes back to the saved values and
+    // the error for the rejected value goes with it.
+    fireEvent.focusOut(next);
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByLabelText("Next window (days)").getAttribute("value")).toBe("14");
+    expect(screen.getByLabelText("Soon window (days)").getAttribute("value")).toBe("45");
+  });
 });
