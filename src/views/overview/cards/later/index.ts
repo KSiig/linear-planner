@@ -1,5 +1,5 @@
 import { shortDay, shortMonthYear } from "../../calendar";
-import { matchesDueWindow } from "../../../../dueWindows";
+import { getDueWindowConfig, matchesDueWindow } from "../../../../dueWindows";
 import { defineCard, type CardSection, type OverviewIssue } from "../shell/contract";
 import "./index.css";
 
@@ -15,8 +15,11 @@ export const laterCard = defineCard({
     scroll: "body",
   },
   load: async (ctx) => {
+    // The boundaries are read when the card loads, so a change to them
+    // reaches the card without a reload.
+    const config = getDueWindowConfig();
     const included = ctx.issues.filter(
-      (issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "later", ctx.today),
+      (issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "later", ctx.today, config),
     );
     if (included.length === 0) return null;
 

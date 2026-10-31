@@ -1,6 +1,6 @@
 import "./index.css";
 import { shortDay } from "../../calendar";
-import { dueWindowRange, matchesDueWindow } from "../../../../dueWindows";
+import { dueWindowRange, getDueWindowConfig, matchesDueWindow } from "../../../../dueWindows";
 import { defineCard, type CardContext, type CardModel, type OverviewIssue } from "../shell/contract";
 
 function isOpen(issue: OverviewIssue): boolean {
@@ -10,9 +10,12 @@ function isOpen(issue: OverviewIssue): boolean {
 export const soonCard = defineCard({
   id: "soon",
   async load(ctx: CardContext): Promise<CardModel | null> {
-    const range = dueWindowRange("soon", ctx.today);
+    // The boundaries are read when the card loads, so a change to them
+    // reaches the card without a reload.
+    const config = getDueWindowConfig();
+    const range = dueWindowRange("soon", ctx.today, config);
     const rows = ctx.issues
-      .filter((issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "soon", ctx.today))
+      .filter((issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "soon", ctx.today, config))
       .sort((a, b) => {
         const byDate = (a.dueDate ?? "").localeCompare(b.dueDate ?? "");
         if (byDate !== 0) return byDate;

@@ -40,10 +40,10 @@ export const SOON_END_DAYS_MAX = 365;
 /**
  * The boundaries in effect in this browser.
  *
- * They are read from storage the first time they are needed, so a browser
- * that stored boundaries keeps them across a reload.
+ * They are read from storage when the app starts, and they are replaced by
+ * every change the user makes.
  */
-let currentConfig: DueWindowConfig | null = null;
+let currentConfig: DueWindowConfig = DEFAULT_DUE_WINDOW_CONFIG;
 
 /** The Due filter options, in the order the filter lists them. */
 export const DUE_WINDOW_OPTIONS: ReadonlyArray<{ id: DueWindow; label: string }> = [
@@ -86,16 +86,10 @@ function isDueWindowConfig(value: unknown): value is DueWindowConfig {
   return dueWindowConfigError(config) === null;
 }
 
-/**
- * The boundaries stored in this browser.
- *
- * A browser that stored nothing, or stored something unreadable, uses the
- * standard boundaries.
- */
-export function loadDueWindowConfig(): DueWindowConfig {
+/** The boundaries a stored raw value holds, or the standard ones. */
+function parseStoredConfig(raw: string | null): DueWindowConfig {
+  if (raw === null) return DEFAULT_DUE_WINDOW_CONFIG;
   try {
-    const raw = localStorage.getItem(DUE_WINDOW_CONFIG_STORAGE_KEY);
-    if (raw === null) return DEFAULT_DUE_WINDOW_CONFIG;
     const parsed: unknown = JSON.parse(raw);
     if (!isDueWindowConfig(parsed)) return DEFAULT_DUE_WINDOW_CONFIG;
     return parsed;
@@ -105,13 +99,29 @@ export function loadDueWindowConfig(): DueWindowConfig {
 }
 
 /**
+ * The boundaries stored in this browser, and the ones in effect.
+ *
+ * A browser that stored nothing, or stored something unreadable, uses the
+ * standard boundaries.
+ */
+export function loadDueWindowConfig(): DueWindowConfig {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(DUE_WINDOW_CONFIG_STORAGE_KEY);
+  } catch {
+    raw = null;
+  }
+  currentConfig = parseStoredConfig(raw);
+  return currentConfig;
+}
+
+/**
  * The boundaries in effect right now.
  *
- * They come from storage the first time they are asked for, and from the last
- * change after that.
+ * The surfaces that group issues by window read them from here, so every
+ * surface uses the same boundaries.
  */
 export function getDueWindowConfig(): DueWindowConfig {
-  if (currentConfig === null) currentConfig = loadDueWindowConfig();
   return currentConfig;
 }
 
@@ -127,7 +137,7 @@ export function saveDueWindowConfig(config: DueWindowConfig): boolean {
   try {
     localStorage.setItem(DUE_WINDOW_CONFIG_STORAGE_KEY, JSON.stringify(currentConfig));
   } catch {
-    // A browser that refuses storage still uses the boundaries for this session.
+    // A browser that refuses storage keeps the boundaries for this session.
   }
   return true;
 }
