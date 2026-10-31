@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CardModel, CardModule, CardSection } from "./contract";
+import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "../../../../issueQuickLookContext";
 import "./index.css";
 
 function rowCount(model: CardModel): number {
@@ -21,6 +22,7 @@ function visibleSections(sections: CardSection[], limit: number | null): CardSec
 
 export function CardShell({ card, model }: { card: CardModule; model: CardModel | null }) {
   const [expanded, setExpanded] = useState(false);
+  const surface = useIssueQuickLookSurface();
   if (model === null) return null;
 
   const appearance = card.appearance ?? {};
@@ -51,19 +53,30 @@ export function CardShell({ card, model }: { card: CardModule; model: CardModel 
         {card.renderBody ? card.renderBody(model) : sections.map((section, index) => (
           <div key={section.title ?? index}>
             {section.title ? <div className="overview-card-section-title">{section.title}</div> : null}
-            {section.rows.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                className="overview-card-row"
-                onClick={() => window.open(row.url, "_blank")}
-              >
-                <span className="overview-card-id">{row.identifier}</span>
-                <span className="overview-card-title">{row.title}</span>
-                <span className="overview-card-project">{row.projectName}</span>
-                <span className="overview-card-trailing">{row.trailing}</span>
-              </button>
-            ))}
+            {section.rows.map((row) => {
+              // The row carries a narrow issue, so the full issue is looked up in
+              // the project's issues to name the row with its status.
+              const issue = surface?.issueById(row.id);
+              const link = issueQuickLookLink(surface, {
+                id: row.id,
+                url: row.url,
+                name: issue
+                  ? issueAccessibleName(issue.identifier, issue.title, issue.state.name)
+                  : `${row.identifier} ${row.title}`,
+              });
+              return (
+                <a
+                  key={row.id}
+                  {...link}
+                  className="overview-card-row"
+                >
+                  <span className="overview-card-id">{row.identifier}</span>
+                  <span className="overview-card-title">{row.title}</span>
+                  <span className="overview-card-project">{row.projectName}</span>
+                  <span className="overview-card-trailing">{row.trailing}</span>
+                </a>
+              );
+            })}
           </div>
         ))}
         {total > collapseAfter ? (

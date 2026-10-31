@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineCard, type CardModel, type CardRow } from "./contract";
 import { CardShell } from "./index";
+import type { LinearIssue } from "../../../../linear";
+import { IssueQuickLookSurfaceContext, type IssueQuickLookSurface } from "../../../../issueQuickLookContext";
 
 afterEach(() => {
   cleanup();
@@ -55,5 +57,101 @@ describe("CardShell", () => {
     expect(getComputedStyle(shell as Element).borderTopWidth).toBe("1px");
     expect(screen.getByText("Custom body")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Open" })).toBeTruthy();
+  });
+});
+
+function issue(overrides: Partial<LinearIssue> & Pick<LinearIssue, "id" | "identifier">): LinearIssue {
+  return {
+    title: overrides.identifier,
+    url: `https://linear.app/issue/${overrides.identifier}`,
+    priority: 0,
+    priorityLabel: "No priority",
+    sortOrder: 0,
+    startedAt: null,
+    completedAt: null,
+    dueDate: null,
+    description: null,
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    state: { id: "state-todo", name: "Todo", type: "unstarted", color: "#888888", position: 1 },
+    team: { id: "team-1" },
+    assignee: null,
+    projectMilestone: null,
+    project: null,
+    labels: { nodes: [] },
+    relations: { nodes: [] },
+    inverseRelations: { nodes: [] },
+    ...overrides,
+  };
+}
+
+/** Renders the shell with the contract the app shares with its surfaces. */
+function renderShell(rows: CardRow[], issues: LinearIssue[] = []) {
+  const openIssue = vi.fn();
+  const surface: IssueQuickLookSurface = {
+    trigger: {
+      onClick: vi.fn(),
+      "aria-haspopup": "dialog",
+      "aria-expanded": false,
+      "aria-controls": "quick-look-dialog",
+    },
+    selectedIssueId: null,
+    openIssue,
+    issueById: (id) => issues.find((candidate) => candidate.id === id),
+  };
+  const card = defineCard({ id: "open", load: async () => null });
+  const view = render(
+    <IssueQuickLookSurfaceContext.Provider value={surface}>
+      <CardShell card={card} model={{ title: "Open", sections: [{ rows }] }} />
+    </IssueQuickLookSurfaceContext.Provider>,
+  );
+  return { ...view, openIssue };
+}
+
+describe("the overview card quick-look interaction", () => {
+  it("renders every row as a link to Linear", () => {
+    renderShell([row("row-1")]);
+
+    const link = screen.getByRole("link", { name: "ROW-1 Title row-1" });
+    expect(link.getAttribute("href")).toBe("https://example.test/row-1");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("names a row with the identifier, the title, and the status of its issue", () => {
+    renderShell(
+      [row("row-1")],
+      [issue({ id: "row-1", identifier: "ROW-1", title: "Title row-1" })],
+    );
+
+    expect(screen.getByRole("link", { name: "ROW-1 Title row-1 — Todo" })).toBeTruthy();
+  });
+
+  it("opens the shared quick-look when a row is clicked", () => {
+    const { openIssue } = renderShell([row("row-1")]);
+
+    fireEvent.click(screen.getByRole("link", { name: "ROW-1 Title row-1" }));
+
+    expect(openIssue).toHaveBeenCalledTimes(1);
+    expect(openIssue.mock.calls[0]?.[0]).toBe("row-1");
+  });
+
+  it("keeps the link behaviour of the browser on a ctrl-click", () => {
+    const { openIssue } = renderShell([row("row-1")]);
+    const link = screen.getByRole("link", { name: "ROW-1 Title row-1" });
+    // The browser follows the link on a ctrl-click. The listener keeps the test
+    // page and reads whether the surface stopped the link first.
+    let preventedBySurface = true;
+    const keepTheTestPage = (event: Event) => {
+      preventedBySurface = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", keepTheTestPage);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    fireEvent(link, event);
+    document.removeEventListener("click", keepTheTestPage);
+
+    expect(openIssue).not.toHaveBeenCalled();
+    expect(preventedBySurface).toBe(false);
   });
 });

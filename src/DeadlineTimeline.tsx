@@ -13,6 +13,7 @@ import {
   type DeadlineTimelineMarker,
 } from "./deadlineTimelineLayout";
 import { shortDay, shortMonthYear } from "./views/overview/calendar";
+import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "./issueQuickLookContext";
 
 /** Thickness of the "In started status" span, in pixels. The span is thin on purpose. */
 const SPAN_THICKNESS = 4;
@@ -127,17 +128,23 @@ function markerAppearance(marker: DeadlineTimelineMarker): { background: string;
  * never grows into a bar that would stand for a duration. Only the span has a
  * width, and its width comes from the two dates Linear reported.
  */
-function Marker({ marker }: { marker: DeadlineTimelineMarker }) {
+function Marker({ marker, issue }: { marker: DeadlineTimelineMarker; issue: LinearIssue | undefined }) {
   const isSpan = marker.kind === "span";
   const thickness = isSpan ? SPAN_THICKNESS : POINT_MARKER_SIZE;
   const left = marker.startDay * DAY_WIDTH + (isSpan ? 0 : (DAY_WIDTH - POINT_MARKER_SIZE) / 2);
   const width = isSpan ? (marker.endDay - marker.startDay) * DAY_WIDTH : POINT_MARKER_SIZE;
   const top = marker.lane * (LANE_HEIGHT + LANE_GAP) + (LANE_HEIGHT - thickness) / 2;
   const appearance = markerAppearance(marker);
+  const surface = useIssueQuickLookSurface();
+  const link = issueQuickLookLink(surface, {
+    id: marker.issueId,
+    url: issue?.url ?? "",
+    // The marker names the fact it draws, and the issue it belongs to.
+    name: issue ? `${marker.accessibleName} — ${issue.state.name}` : marker.accessibleName,
+  });
   return (
-    <div
-      role="listitem"
-      aria-label={marker.accessibleName}
+    <a
+      {...link}
       title={marker.accessibleName}
       data-fact={marker.fact}
       data-date={marker.startDate}
@@ -158,7 +165,7 @@ function Marker({ marker }: { marker: DeadlineTimelineMarker }) {
 }
 
 /** The band of one milestone. The markers of the milestone share the band. */
-function GroupBand({ group }: { group: DeadlineTimelineGroup }) {
+function GroupBand({ group, issuesById }: { group: DeadlineTimelineGroup; issuesById: Map<string, LinearIssue> }) {
   const lanes = group.markers.reduce((most, marker) => Math.max(most, marker.lane + 1), 0);
   return (
     <section aria-label={`Milestone ${group.name}`} style={{ borderBottom: "1px solid var(--border)" }}>
@@ -175,12 +182,12 @@ function GroupBand({ group }: { group: DeadlineTimelineGroup }) {
         {group.name}
       </div>
       <div
-        role="list"
+        role="group"
         aria-label={`${group.name} markers`}
         style={{ position: "relative", height: Math.max(lanes, 1) * (LANE_HEIGHT + LANE_GAP) }}
       >
         {group.markers.map((marker) => (
-          <Marker key={marker.key} marker={marker} />
+          <Marker key={marker.key} marker={marker} issue={issuesById.get(marker.issueId)} />
         ))}
       </div>
     </section>
@@ -189,6 +196,7 @@ function GroupBand({ group }: { group: DeadlineTimelineGroup }) {
 
 /** The open issues that carry no due date. */
 function UndatedIssues({ issues }: { issues: DeadlineTimelineIssue[] }) {
+  const surface = useIssueQuickLookSurface();
   if (issues.length === 0) return null;
   return (
     <section
@@ -220,42 +228,46 @@ function UndatedIssues({ issues }: { issues: DeadlineTimelineIssue[] }) {
         </div>
       </div>
       <div>
-        {issues.map((entry) => (
-          <a
-            key={entry.issue.id}
-            href={entry.issue.url}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`${entry.issue.identifier} ${entry.issue.title} — no due date`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "7px 12px",
-              borderTop: "1px solid var(--border)",
-              color: "var(--text)",
-              textDecoration: "none",
-              fontSize: 13,
-            }}
-          >
-            <span style={{ fontWeight: 600, flexShrink: 0 }}>{entry.issue.identifier}</span>
-            <span
+        {issues.map((entry) => {
+          const link = issueQuickLookLink(surface, {
+            id: entry.issue.id,
+            url: entry.issue.url,
+            name: issueAccessibleName(entry.issue.identifier, entry.issue.title, entry.issue.state.name),
+          });
+          return (
+            <a
+              key={entry.issue.id}
+              {...link}
               style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "7px 12px",
+                borderTop: "1px solid var(--border)",
+                color: "var(--text)",
+                textDecoration: "none",
+                fontSize: 13,
               }}
             >
-              {entry.issue.title}
-            </span>
-            {entry.milestoneId !== null ? (
-              <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
-                {entry.milestoneName}
+              <span style={{ fontWeight: 600, flexShrink: 0 }}>{entry.issue.identifier}</span>
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                }}
+              >
+                {entry.issue.title}
               </span>
-            ) : null}
-          </a>
-        ))}
+              {entry.milestoneId !== null ? (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
+                  {entry.milestoneName}
+                </span>
+              ) : null}
+            </a>
+          );
+        })}
       </div>
     </section>
   );
@@ -272,6 +284,7 @@ function UndatedIssues({ issues }: { issues: DeadlineTimelineIssue[] }) {
  */
 export function DeadlineTimeline({ issues }: DeadlineTimelineProps) {
   const layout = useMemo(() => buildDeadlineTimelineLayout(issues), [issues]);
+  const issuesById = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues]);
   if (layout.groups.length === 0 && layout.undated.length === 0) return null;
 
   return (
@@ -298,7 +311,7 @@ export function DeadlineTimeline({ issues }: DeadlineTimelineProps) {
           <div style={{ width: Math.max(layout.axis.dayCount * DAY_WIDTH, DAY_WIDTH) }}>
             <AxisHeader axis={layout.axis} />
             {layout.groups.map((group) => (
-              <GroupBand key={group.id ?? "no-milestone"} group={group} />
+              <GroupBand key={group.id ?? "no-milestone"} group={group} issuesById={issuesById} />
             ))}
           </div>
         </div>

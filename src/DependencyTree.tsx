@@ -1,6 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import type { LinearIssue, LinearMilestone, LinearWorkflowState } from "./linear";
-import { TIMELINE_LABELS } from "./issueFacts";
 import { buildTreeIssues, type TreeIssue } from "./treeFacts";
 import { StatusCircle } from "./StatusCircle";
 import { BlockedIcon, PriorityIcon, AssigneeAvatar } from "./CardIcons";
@@ -10,6 +9,7 @@ import { localToday } from "./views/overview/calendar";
 import { Legend } from "./Legend";
 import { BLOCKED_STRIPE, DONE_STRIPE, ongoingStatusBg, isBlockedDisplay, canShowRemoveBlockerMenu, wouldDuplicateBlocker } from "./cardStyle";
 import { layoutDependencyTree, layoutDependencyTreeGlobal, layoutDependencyTreePerMilestone, edgePath, NODE_WIDTH, NODE_HEIGHT, type TreeLayoutResult } from "./treeLayout";
+import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "./issueQuickLookContext";
 
 const LABEL_WIDTH = 220;
 const BAND_HEADER_H = 36;
@@ -24,16 +24,6 @@ const EMPTY_MILESTONES: readonly LinearMilestone[] = [];
 
 /** The workflow has no started state. */
 const EMPTY_STARTED_STATES: readonly LinearWorkflowState[] = [];
-
-/** `2026-11-02` → `2 Nov 2026`. */
-function formatIsoDate(isoDate: string): string {
-  const [year, month, day] = isoDate.slice(0, 10).split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 /**
  * Insert a header slot at the top of each milestone band and push nodes and edges down
@@ -123,7 +113,6 @@ export function DependencyTree({
     [treeIssues, includeDone],
   );
   const containerRef = useRef<HTMLDivElement>(null);
-  const [tooltipInfo, setTooltipInfo] = useState<{ issue: TreeIssue; x: number; y: number } | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [layout, setLayout] = useState<TreeLayoutResult>(EMPTY_LAYOUT);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -188,6 +177,7 @@ export function DependencyTree({
   }, [filteredIssues, milestones, variant]);
 
   const narrow = useNarrowLayout();
+  const surface = useIssueQuickLookSurface();
   const view = useMemo(() => (narrow ? withBandHeaders(layout, BAND_HEADER_H) : layout), [narrow, layout]);
   const contentWidth = Math.max(view.contentWidth, 400);
   const contentHeight = Math.max(view.contentHeight, 100);
@@ -329,10 +319,16 @@ export function DependencyTree({
               const draggedIssue = draggingId ? layout.nodes.find((n) => n.issue.id === draggingId)?.issue : null;
               const targetAlreadyBlocksDragged = draggedIssue ? wouldDuplicateBlocker(draggedIssue, node.issue) : false;
               const isDropTarget = dragOverId === node.issue.id && draggingId && draggingId !== node.issue.id && !targetAlreadyBlocksDragged;
+              const link = issueQuickLookLink(surface, {
+                id: node.issue.id,
+                url: node.issue.url,
+                name: issueAccessibleName(node.issue.identifier, node.issue.title, node.issue.stateName),
+              });
               return (
-                <div
+                <a
                   key={node.issue.id}
                   data-card
+                  {...link}
                   draggable={!!onCreateBlockingRelation}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "link";
@@ -363,17 +359,13 @@ export function DependencyTree({
                     if (!canShowRemoveBlockerMenu(node.issue)) return;
                     e.preventDefault();
                     setContextMenu({ x: e.clientX, y: e.clientY, issue: node.issue });
-                    setTooltipInfo(null);
                     setHoveredId(null);
                   }}
-                  onMouseEnter={(e) => {
-                    if (draggingId) return; // suppress tooltip while dragging
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    setTooltipInfo({ issue: node.issue, x: rect.left + rect.width / 2, y: rect.top });
+                  onMouseEnter={() => {
+                    if (draggingId) return; // the card follows the pointer while a card is dragged
                     setHoveredId(node.issue.id);
                   }}
-                  onMouseLeave={() => { setTooltipInfo(null); setHoveredId(null); }}
-                  onClick={() => window.open(node.issue.url, "_blank")}
+                  onMouseLeave={() => setHoveredId(null)}
                   style={{
                     position: "absolute",
                     left: node.x,
@@ -394,6 +386,8 @@ export function DependencyTree({
                     flexDirection: "column",
                     justifyContent: "flex-start",
                     gap: 1,
+                    color: "var(--text)",
+                    textDecoration: "none",
                     cursor: onCreateBlockingRelation ? (draggingId === node.issue.id ? "grabbing" : "grab") : "pointer",
                     opacity: (node.issue.done ? 0.5 : 1) * (draggingId === node.issue.id ? 0.4 : 1),
                     fontSize: 11,
@@ -443,67 +437,11 @@ export function DependencyTree({
                       ))}
                     </div>
                   )}
-                </div>
+                </a>
               );
             })}
           </div>
         </div>
-
-        {/* Tooltip */}
-        {tooltipInfo && (
-          <div
-            style={{
-              position: "fixed", left: tooltipInfo.x, top: tooltipInfo.y - 8,
-              transform: "translate(-50%, -100%)",
-              background: "var(--surface-hover)", border: "1px solid var(--border)",
-              borderRadius: 6, padding: "8px 12px", fontSize: 12, zIndex: 100,
-              pointerEvents: "none", maxWidth: 320,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-            }}
-          >
-            <div style={{ fontWeight: 600, marginBottom: 2 }}>
-              {tooltipInfo.issue.identifier}: {tooltipInfo.issue.title}
-            </div>
-            {tooltipInfo.issue.labels.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
-                {tooltipInfo.issue.labels.map((l) => (
-                  <span key={l.name} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, padding: "1px 6px", borderRadius: 3, background: `${l.color}20`, color: l.color, fontWeight: 500 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: l.color, flexShrink: 0 }} />
-                    {l.name}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)" }}>
-              {tooltipInfo.issue.assigneeName && <><AssigneeAvatar url={tooltipInfo.issue.assigneeAvatarUrl} name={tooltipInfo.issue.assigneeName} size={14} /><span>{tooltipInfo.issue.assigneeName}</span></>}
-              {tooltipInfo.issue.assigneeName && tooltipInfo.issue.priority > 0 && <span>&middot;</span>}
-              {tooltipInfo.issue.priority > 0 && <><PriorityIcon priority={tooltipInfo.issue.priority} size={14} /><span>{tooltipInfo.issue.priorityLabel}</span></>}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-              <StatusCircle stateType={tooltipInfo.issue.stateType} color={tooltipInfo.issue.stateColor} progress={tooltipInfo.issue.stateProgress} size={12} />
-              <span>{tooltipInfo.issue.stateName}</span>
-            </div>
-            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
-              {tooltipInfo.issue.startedAt && (
-                <div>{TIMELINE_LABELS.enteredStartedStatus}: {formatIsoDate(tooltipInfo.issue.startedAt)}</div>
-              )}
-              {tooltipInfo.issue.dueDate && (
-                <div>{TIMELINE_LABELS.due}: {formatIsoDate(tooltipInfo.issue.dueDate)}</div>
-              )}
-              {tooltipInfo.issue.completedAt && (
-                <div>{TIMELINE_LABELS.completed}: {formatIsoDate(tooltipInfo.issue.completedAt)}</div>
-              )}
-            </div>
-            {!tooltipInfo.issue.done && tooltipInfo.issue.blockedBy.filter((b) => !b.done).length > 0 && (
-              <div style={{ color: "var(--text-muted)", marginTop: 4, fontSize: 11 }}>
-                Blocked by:
-                {tooltipInfo.issue.blockedBy.filter((b) => !b.done).map((b) => (
-                  <div key={b.identifier} style={{ marginLeft: 8 }}>{b.identifier} {b.title}</div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {legend}

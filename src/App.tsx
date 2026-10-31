@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties } from "react";
-import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation } from "./linear";
+import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation, issueUpdate } from "./linear";
 import type { LinearProject, LinearIssue, LinearMilestone, LinearWorkflowState } from "./linear";
 import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isAutoRefreshEnabled, setAutoRefreshEnabled, isOAuthScopeError, reauthorizeWithWriteScope } from "./auth";
 import { DependencyTree } from "./DependencyTree";
@@ -29,6 +29,9 @@ import {
 import { FilterMenu } from "./views/filters/FilterMenu";
 import { FilterChips } from "./views/filters/FilterChips";
 import { ViewMenu } from "./views/filters/ViewMenu";
+import { IssueQuickLook } from "./IssueQuickLook";
+import { toIssueQuickLookData, type IssueQuickLookData } from "./issueQuickLookModel";
+import { IssueQuickLookSurfaceContext } from "./issueQuickLookContext";
 
 const modeSettingStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" };
 
@@ -75,6 +78,35 @@ function FilterChip({ pressed, onClick, children }: { pressed: boolean; onClick:
 // Don't auto-refresh if the data was already refreshed within this window.
 const AUTO_REFRESH_THROTTLE_MS = 5 * 60 * 1000;
 
+/**
+ * The data the quick-look holds before the user picks an issue.
+ *
+ * The quick-look needs an issue, but the app only knows one after a click.
+ * The dialog stays closed until then, so this placeholder is never shown.
+ */
+const NO_ISSUE: IssueQuickLookData = {
+  id: "",
+  identifier: "",
+  title: "",
+  url: "",
+  state: { id: "", name: "", type: "", color: "" },
+  teamId: "",
+  priority: 0,
+  priorityLabel: "",
+  assignee: null,
+  labels: [],
+  milestone: null,
+  project: null,
+  dueDate: null,
+  createdAt: "",
+  updatedAt: "",
+  enteredStartedStatusAt: null,
+  completedAt: null,
+  description: "",
+  blockedBy: [],
+  blocks: [],
+};
+
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [projects, setProjects] = useState<LinearProject[]>([]);
@@ -97,6 +129,8 @@ export default function App() {
   const [activeView, setActiveView] = useState<SavedView | null>(null);
   const [projectMilestones, setProjectMilestones] = useState<LinearMilestone[]>([]);
   const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
+  // The issue the shared quick-look shows. One issue, one quick-look, every surface.
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
   const projectsRef = useRef(projects);
   useEffect(() => {
@@ -128,6 +162,20 @@ export default function App() {
 
   /** The current calendar day (`YYYY-MM-DD`). */
   const today = localToday(new Date());
+
+  // The full issues of the project, so a surface that shows a narrow issue can
+  // still find the issue behind it.
+  const issuesById = useMemo(
+    () => new Map(projectIssues.map((issue) => [issue.id, issue])),
+    [projectIssues],
+  );
+
+  // The issue the shared quick-look shows, projected with the one canonical mapping.
+  const selectedIssue = selectedIssueId === null ? null : issuesById.get(selectedIssueId) ?? null;
+  const quickLookData = useMemo(
+    () => (selectedIssue ? toIssueQuickLookData(selectedIssue) : NO_ISSUE),
+    [selectedIssue],
+  );
 
   // Restore session on mount (or handle OAuth callback)
   useEffect(() => {
@@ -365,6 +413,32 @@ export default function App() {
     // tree redraws from projectIssues without unmounting, keeping the scroll position.
     setProjectIssues((prev) => removeRelation(prev, relationId));
   }, [loadProject]);
+
+  const handleStatusChange = useCallback(async (issueId: string, stateId: string) => {
+    try {
+      await issueUpdate(issueId, stateId);
+    } catch (err) {
+      if (isOAuthScopeError(err)) setScopeError(err);
+      throw err;
+    }
+    // The write succeeded, so the local issue data moves to the new state as well.
+    const state = workflowStates.find((candidate) => candidate.id === stateId);
+    if (!state) return;
+    setProjectIssues((prev) => prev.map((issue) => (
+      issue.id === issueId
+        ? {
+            ...issue,
+            state: {
+              id: state.id,
+              name: state.name,
+              type: state.type,
+              color: state.color,
+              position: state.position,
+            },
+          }
+        : issue
+    )));
+  }, [workflowStates]);
 
   const rememberView = useCallback((view: SavedView | null) => {
     setActiveViewId(view?.id ?? null);
@@ -655,25 +729,51 @@ export default function App() {
                 ))}
               </div>
             )}
-            {!loading && !error && mode === "dates" && (
-              <DeadlineTimeline issues={projectIssues} />
-            )}
-            {!loading && !error && mode === "tree" && (
-              <DependencyTree
-                issues={projectIssues}
-                milestones={projectMilestones}
-                doneStateIds={doneStateIdSet}
-                startedStates={startedStates}
-                today={today}
-                variant={drawCrossMilestoneDeps ? "split" : "individual"}
-                includeDone={includeDoneIssuesTree}
-                onCreateBlockingRelation={handleCreateBlockingRelation}
-                onDeleteRelation={handleDeleteRelation}
-              />
-            )}
-            {mode === "overview" && (
-              <Overview issues={overviewIssues} />
-            )}
+            {/*
+              The app owns one quick-look. Its trigger content is the surface
+              contract every issue surface reads, so a plain click opens the
+              same quick-look on the dates, tree, overview, and undated rows.
+            */}
+            <IssueQuickLook
+              data={quickLookData}
+              teamStates={workflowStates}
+              startedStates={startedStates}
+              onStatusChange={handleStatusChange}
+              onRemoveBlocker={handleDeleteRelation}
+              trigger={(triggerProps) => (
+                <IssueQuickLookSurfaceContext.Provider
+                  value={{
+                    trigger: triggerProps,
+                    selectedIssueId,
+                    openIssue: (issueId: string, event: ReactMouseEvent<HTMLElement>) => {
+                      setSelectedIssueId(issueId);
+                      triggerProps.onClick(event);
+                    },
+                    issueById: (issueId: string) => issuesById.get(issueId),
+                  }}
+                >
+                  {!loading && !error && mode === "dates" && (
+                    <DeadlineTimeline issues={projectIssues} />
+                  )}
+                  {!loading && !error && mode === "tree" && (
+                    <DependencyTree
+                      issues={projectIssues}
+                      milestones={projectMilestones}
+                      doneStateIds={doneStateIdSet}
+                      startedStates={startedStates}
+                      today={today}
+                      variant={drawCrossMilestoneDeps ? "split" : "individual"}
+                      includeDone={includeDoneIssuesTree}
+                      onCreateBlockingRelation={handleCreateBlockingRelation}
+                      onDeleteRelation={handleDeleteRelation}
+                    />
+                  )}
+                  {mode === "overview" && (
+                    <Overview issues={overviewIssues} />
+                  )}
+                </IssueQuickLookSurfaceContext.Provider>
+              )}
+            />
           </div>
         )}
       </main>
