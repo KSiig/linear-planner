@@ -7,9 +7,9 @@ so production code is never polluted with test scaffolding.
 
 | File | Owner | Role |
 |------|-------|------|
-| `run.mjs`         | SII-124 (scaffold) / SII-125 (extension) | Runner. Builds, boots `vite preview`, captures PNGs. |
+| `run.mjs`         | SII-124 (scaffold) / SII-125 (extension) / SII-191 (refresh) | Runner. Builds, boots `vite preview`, captures PNGs. |
 | `viewports.mjs`   | SII-124 (web) / SII-125 (3 mobile) | Viewport contracts. |
-| `fixture.mjs`     | SII-125 | Mock GraphQL fixtures (priskurven M1 — Shelf collector). |
+| `fixture.mjs`     | SII-125 / SII-191 (refresh) | Mock GraphQL fixtures (priskurven M1 — Shelf collector). |
 | `diff.mjs`        | SII-126 | Pixel-diff against `screenshots/visual/baseline/`. |
 
 ## Run
@@ -54,23 +54,47 @@ not run `npx playwright install`.
 
 ## Surfaces × themes
 
-Five surfaces (landing / timeline / tree / settings / overview)
+Six surfaces (landing / dates / tree / settings / overview / quicklook)
 across two themes (dark / light), at every viewport.
 
 States:
 
 - landing: `sign-in`
-- timeline: `populated`, `filters`, `views`
+- dates: `populated`, `filters`, `views`
 - tree: `populated`
 - settings: `panel`
 - overview: `collapsed`
+- quicklook: `open`
 
-Four viewports, five surfaces, two themes, and the two extra timeline states
-make 56 PNGs:
+Four viewports, six surfaces, two themes, and the two extra dates states
+make 64 PNGs:
 
 ```
 screenshots/visual/current/<view>/<viewport>/<theme>/<state>.png
 ```
+
+### What each surface shows
+
+| Surface | What the capture proves |
+| -- | -- |
+| `landing/sign-in` | The signed-out page. |
+| `dates/populated` | The Dates view: the deadline timeline on a calendar-day axis, the milestone bands, and the list of the open issues without a due date. |
+| `dates/filters` | The Filters menu: project, status, assignee, priority, label, milestone, and due. |
+| `dates/views` | The Views menu with the saved views. |
+| `tree/populated` | The Tree view: the milestone bands, the blocking edges, and the blocked issues. |
+| `settings/panel` | The Settings panel: the done states, the next and soon window boundaries, the auto-refresh switch, and the disconnect button. |
+| `overview/collapsed` | The Overview stack with all ten cards of the registry: overdue, next, soon, no date, later, blocked, recently updated, recently completed, deadlines, milestones. The capture waits for every card heading, so a card that stops rendering fails the run. |
+| `quicklook/open` | The shared issue quick-look of `SII-92`: the identifier, the title, the status quick-action, the priority, the assignee, the labels, the milestone, the project, the dates, the blocking relationships, the plain-text body excerpt, the secondary actions, and the "Open in Linear" link. |
+
+### The quick-look on a phone
+
+The `quicklook/open` surface is captured at every viewport. On the two phone
+viewports the same dialog is rendered as the bottom sheet of the narrow
+layout, so those captures are the mobile presentation of the quick-look.
+
+A static image cannot prove the long-press gesture: the picture shows the
+dialog, not the gesture that opens Linear. The gesture itself is covered by
+the unit tests in `src/issueInteraction.test.ts`, not by this harness.
 
 ## Mock data
 
@@ -79,6 +103,46 @@ screenshots/visual/current/<view>/<viewport>/<theme>/<state>.png
 intra-milestone blocks). The
 GraphQL route handler in `run.mjs` dispatches on substrings of the
 request's `body.query` to return the matching fixture.
+
+The fixture answers the queries the app sends today (`src/linear.ts`): the
+project list, the project milestones, the project teams, the team workflow
+states, the team members, the single issue, and the project issues with the
+full issue field set. Every issue carries a description, an `updatedAt`, a
+`createdAt`, a `state.id` and a `team.id`. The fixture carries no estimate,
+no state history, no assignee interval and no count field: the app does not
+ask for them.
+
+The `blocks` edges of the fixture are modelled from both sides. A `blocks`
+relation node lives on the blocker and names the blocked issue through
+`relatedIssue`; the blocked issue sees the same edge through
+`inverseRelations`, with the same relation id. That is the direction the
+app reads to know which open issue blocks an issue.
+
+### The dates of the fixture
+
+The harness freezes the clock at `2026-10-05T07:00:00.000Z` and renders the
+app in `Europe/Paris`, so the calendar day of every capture is 2026-10-05.
+The due dates of the fixture are written as offsets from that day, so the
+due windows and the recency windows hold the rows they are meant to hold.
+
+The issue set covers every card of the Overview:
+
+| Card | Issues |
+| -- | -- |
+| Overdue | SII-103, SII-112 |
+| Next | SII-92, SII-97, SII-98, SII-113 |
+| Soon | SII-94 |
+| No date | SII-93, SII-101, SII-99, SII-114, SII-95 (as an idea) |
+| Later | SII-96 |
+| Blocked | SII-103, SII-92, SII-94, SII-95 |
+| Recently Updated | SII-93, SII-92, SII-103, SII-99 |
+| Recently Completed | SII-110, SII-109, SII-91 |
+| Deadlines | SII-92, SII-97, SII-98, SII-113 |
+| Milestones | M1 — Shelf collector, and SII-114 without a milestone |
+
+The descriptions hold Markdown and plain text. `SII-92` also holds an HTML
+tag, so the capture proves that the body excerpt is rendered as plain text
+and never as raw HTML.
 
 `addInitScript` writes a fake auth token into `localStorage` before any
 page script runs:
@@ -132,7 +196,12 @@ matches GitHub-hosted Chrome.
   whatever the new surface needs (open URL, click tab, wait for text).
 - **Add a fixture field** — extend the relevant object in `fixture.mjs`.
   The route handler passes the data through verbatim, so any field the
-  app's GraphQL query selects must exist in the response.
+  app's GraphQL query selects must exist in the response. A query the
+  handler does not know fails the run, so a new query in `src/linear.ts`
+  needs a new branch in `dispatchGraphQL` and a matching fixture answer.
+- **Remove a surface from the app** — add the removed wording to
+  `REMOVED_WORDING` in `run.mjs`. Every capture then fails when the page
+  still shows it.
 
 ## CI — `visual` job (SII-127)
 
