@@ -16,9 +16,8 @@ import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToL
 import type { PlannerQuery } from "./plannerQuery";
 import { normalizePlannerQuery } from "./plannerQuery";
 import {
-  dueWindowConfigError,
-  getDueWindowConfig,
   loadDueWindowConfig,
+  parseDueWindowDraft,
   saveDueWindowConfig,
   type DueWindowConfig,
 } from "./dueWindows";
@@ -208,6 +207,16 @@ export default function App() {
   const [scopeError, setScopeError] = useState<unknown>(null);
   const [autoRefresh, setAutoRefreshState] = useState(isAutoRefreshEnabled());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The due-window boundaries. They are browser-global: one browser uses the
+  // same boundaries for every project.
+  const [dueWindowConfig, setDueWindowConfig] = useState<DueWindowConfig>(() => loadDueWindowConfig());
+  // What the settings fields hold while they are being edited. The value in
+  // effect is the one the surfaces use.
+  const [dueWindowDraft, setDueWindowDraft] = useState(() => {
+    const config = loadDueWindowConfig();
+    return { nextEndDays: String(config.nextEndDays), soonEndDays: String(config.soonEndDays) };
+  });
+  const [dueWindowError, setDueWindowError] = useState<string | null>(null);
 
   const [projectIssues, setProjectIssues] = useState<LinearIssue[]>([]);
   const [overviewIssues, setOverviewIssues] = useState<OverviewIssue[]>([]);
@@ -224,6 +233,11 @@ export default function App() {
     projectsRef.current = projects;
   }, [projects]);
   const loadGen = useRef(0);
+
+  // The issues of the loaded projects, before the query filters them. The
+  // due-window boundaries decide which issues the query keeps, so they are
+  // kept to filter them again when the boundaries change.
+  const scopedIssuesRef = useRef<StampedIssue[]>([]);
 
   // Timestamp of the last data load (manual or auto), used to throttle auto-refresh.
   const lastRefreshAtRef = useRef(0);
@@ -424,6 +438,7 @@ export default function App() {
     const selectableIds = projectsRef.current.filter((project) => project.hasIssues).map((project) => project.id);
     const ids = projectIdsToLoad(query, selectableIds);
     if (ids.length === 0) {
+      scopedIssuesRef.current = [];
       setProjectIssues([]);
       setOverviewIssues([]);
       setProjectMilestones([]);
@@ -441,6 +456,7 @@ export default function App() {
         fetchScopedById(ids, fetchProjectTeamStates),
       ]);
       if (gen !== loadGen.current) return;
+      scopedIssuesRef.current = stamped;
       const matched = filterMatchingIssues(stamped, query, localToday(new Date()));
       setOverviewIssues(matched.map(toOverviewIssue));
       setTeamStates(states);
@@ -689,6 +705,64 @@ export default function App() {
     ));
   }, []);
 
+  /**
+   * Apply new due-window boundaries to the app.
+   *
+   * The boundaries are stored, and the issues that are already loaded are
+   * filtered again. Filtering produces a new issue set, so the Overview cards
+   * load again with the new boundaries, without the app reloading.
+   */
+  const applyDueWindowConfig = useCallback((config: DueWindowConfig) => {
+    saveDueWindowConfig(config);
+    setDueWindowConfig(config);
+    setDueWindowDraft({
+      nextEndDays: String(config.nextEndDays),
+      soonEndDays: String(config.soonEndDays),
+    });
+    const matched = filterMatchingIssues(scopedIssuesRef.current, plannerQuery, localToday(new Date()));
+    setProjectIssues(matched);
+    setOverviewIssues(matched.map(toOverviewIssue));
+  }, [plannerQuery]);
+
+  /**
+   * Change one of the two boundary fields.
+   *
+   * A pair the windows can use is applied at once. A pair they cannot use is
+   * refused: the message says why, and the boundaries in effect stay the ones
+   * that were in effect.
+   */
+  const changeDueWindowDraft = useCallback((field: "nextEndDays" | "soonEndDays", raw: string) => {
+    const draft = { ...dueWindowDraft, [field]: raw };
+    const result = parseDueWindowDraft(draft.nextEndDays, draft.soonEndDays);
+    if (!result.ok) {
+      setDueWindowError(result.error.reason);
+      // A value that can never be used goes back to the value in effect. A
+      // value that only conflicts with the other field stays in the field, so
+      // it can be finished.
+      setDueWindowDraft(result.error.revert
+        ? { ...draft, [field]: String(dueWindowConfig[field]) }
+        : draft);
+      return;
+    }
+    setDueWindowError(null);
+    setDueWindowDraft(draft);
+    applyDueWindowConfig(result.config);
+  }, [applyDueWindowConfig, dueWindowConfig, dueWindowDraft]);
+
+  /**
+   * Put the boundary fields back to the boundaries in effect.
+   *
+   * A field that still holds a rejected value goes back to the value in
+   * effect when it loses focus.
+   */
+  const revertDueWindowDraft = useCallback(() => {
+    if (parseDueWindowDraft(dueWindowDraft.nextEndDays, dueWindowDraft.soonEndDays).ok) return;
+    setDueWindowDraft({
+      nextEndDays: String(dueWindowConfig.nextEndDays),
+      soonEndDays: String(dueWindowConfig.soonEndDays),
+    });
+  }, [dueWindowConfig, dueWindowDraft]);
+
   const settingsFields = (
     <>
       {startedStates.length > 0 && (
@@ -715,6 +789,53 @@ export default function App() {
           <div style={{ height: 1, background: "var(--border)" }} />
         </>
       )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "var(--text-muted)" }}>
+        <span>Due windows</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ flex: 1 }}>Next window (days)</span>
+          <input
+            type="number"
+            aria-label="Next window (days)"
+            min={1}
+            max={90}
+            value={dueWindowDraft.nextEndDays}
+            onChange={(e) => changeDueWindowDraft("nextEndDays", e.target.value)}
+            onBlur={revertDueWindowDraft}
+            style={{
+              width: 64,
+              padding: "4px 6px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg)",
+              color: "var(--text)",
+            }}
+          />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ flex: 1 }}>Soon window (days)</span>
+          <input
+            type="number"
+            aria-label="Soon window (days)"
+            min={1}
+            max={365}
+            value={dueWindowDraft.soonEndDays}
+            onChange={(e) => changeDueWindowDraft("soonEndDays", e.target.value)}
+            onBlur={revertDueWindowDraft}
+            style={{
+              width: 64,
+              padding: "4px 6px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg)",
+              color: "var(--text)",
+            }}
+          />
+        </label>
+        {dueWindowError && (
+          <span role="alert" style={{ color: "var(--text)" }}>{dueWindowError}</span>
+        )}
+      </div>
+      <div style={{ height: 1, background: "var(--border)" }} />
       <label
         style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}
         title="Re-fetch the latest Linear data whenever this tab regains focus"
