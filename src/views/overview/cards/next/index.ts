@@ -1,6 +1,6 @@
 import { defineCard } from "../shell/contract";
 import { shortDay } from "../../calendar";
-import { dueWindowRange, matchesDueWindow } from "../../../../dueWindows";
+import { dueWindowRange, getDueWindowConfig, matchesDueWindow } from "../../../../dueWindows";
 import "./index.css";
 
 const CLOSED = new Set(["completed", "canceled"]);
@@ -8,9 +8,12 @@ const CLOSED = new Set(["completed", "canceled"]);
 export const nextCard = defineCard({
   id: "next",
   async load(ctx) {
-    const range = dueWindowRange("next", ctx.today);
+    // The boundaries are read when the card loads, so a change to them
+    // reaches the card without a reload.
+    const config = getDueWindowConfig();
+    const range = dueWindowRange("next", ctx.today, config);
     const rows = ctx.issues
-      .filter((issue) => !CLOSED.has(issue.state.type) && matchesDueWindow(issue.dueDate, "next", ctx.today))
+      .filter((issue) => !CLOSED.has(issue.state.type) && matchesDueWindow(issue.dueDate, "next", ctx.today, config))
       .sort((left, right) => {
         const byDate = left.dueDate!.localeCompare(right.dueDate!);
         if (byDate !== 0) return byDate;

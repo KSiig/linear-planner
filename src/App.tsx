@@ -12,9 +12,16 @@ import { useNarrowLayout } from "./useNarrowLayout";
 import { Overview } from "./views/overview/Overview";
 import { localToday } from "./views/overview/calendar";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
-import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
+import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue, type StampedIssue } from "./applyPlannerQuery";
 import type { PlannerQuery } from "./plannerQuery";
 import { normalizePlannerQuery } from "./plannerQuery";
+import {
+  dueWindowConfigError,
+  getDueWindowConfig,
+  loadDueWindowConfig,
+  saveDueWindowConfig,
+  type DueWindowConfig,
+} from "./dueWindows";
 import {
   loadActiveViewId,
   loadDisplaySettings,
