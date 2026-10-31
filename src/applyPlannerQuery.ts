@@ -1,5 +1,6 @@
 import type { LinearIssue } from "./linear";
 import { fetchProjectIssues } from "./linear";
+import { toIssueQuickLookData } from "./issueQuickLookModel";
 import { matchesQuery, scopeProjectIds, type PlannerQuery } from "./plannerQuery";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
 
@@ -35,18 +36,7 @@ export function filterMatchingIssues(
 }
 
 export function toOverviewIssue(issue: StampedIssue): OverviewIssue {
-  return {
-    id: issue.id,
-    identifier: issue.identifier,
-    title: issue.title,
-    url: issue.url,
-    dueDate: issue.dueDate,
-    priority: issue.priority,
-    priorityLabel: issue.priorityLabel,
-    updatedAt: "",
-    state: { name: issue.state.name, type: issue.state.type },
-    project: issue.project,
-  };
+  return toIssueQuickLookData(issue);
 }
 
 export function overviewIssuesForQuery(

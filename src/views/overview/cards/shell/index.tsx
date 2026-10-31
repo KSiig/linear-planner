@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CardModel, CardModule, CardSection } from "./contract";
 import { issueAccessibleName, issueQuickLookLink, useIssueQuickLookSurface } from "../../../../issueQuickLookContext";
+import { toIssueQuickLookData } from "../../../../issueQuickLookModel";
 import { ISSUE_TOUCH_CLASS, useIssueLongPressController } from "../../../../issueInteraction";
 import "./index.css";
 
@@ -56,12 +57,13 @@ export function CardShell({ card, model }: { card: CardModule; model: CardModel 
           <div key={section.title ?? index}>
             {section.title ? <div className="overview-card-section-title">{section.title}</div> : null}
             {section.rows.map((row) => {
-              // The row carries a narrow issue, so the full issue is looked up in
-              // the project's issues to name the row with its status.
-              const issue = surface?.issueById(row.id);
+              // The row carries only the facts it renders. The full issue is
+              // projected with the canonical model before the link is named.
+              const source = surface?.issueById(row.id);
+              const issue = source ? toIssueQuickLookData(source) : undefined;
               const link = issueQuickLookLink(surface, {
                 id: row.id,
-                url: row.url,
+                url: issue?.url ?? row.url,
                 name: issue
                   ? issueAccessibleName(issue.identifier, issue.title, issue.state.name)
                   : `${row.identifier} ${row.title}`,
@@ -74,8 +76,8 @@ export function CardShell({ card, model }: { card: CardModule; model: CardModel 
                   {...press}
                   className={`overview-card-row ${ISSUE_TOUCH_CLASS}`}
                 >
-                  <span className="overview-card-id">{row.identifier}</span>
-                  <span className="overview-card-title">{row.title}</span>
+                  <span className="overview-card-id">{issue?.identifier ?? row.identifier}</span>
+                  <span className="overview-card-title">{issue?.title ?? row.title}</span>
                   <span className="overview-card-project">{row.projectName}</span>
                   <span className="overview-card-trailing">{row.trailing}</span>
                 </a>

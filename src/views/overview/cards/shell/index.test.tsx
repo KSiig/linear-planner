@@ -5,6 +5,7 @@ import { defineCard, type CardModel, type CardRow } from "./contract";
 import { CardShell } from "./index";
 import type { LinearIssue } from "../../../../linear";
 import { IssueQuickLookSurfaceContext, type IssueQuickLookSurface } from "../../../../issueQuickLookContext";
+import { toIssueQuickLookData } from "../../../../issueQuickLookModel";
 
 afterEach(() => {
   cleanup();
@@ -125,6 +126,25 @@ describe("the overview card quick-look interaction", () => {
     );
 
     expect(screen.getByRole("link", { name: "ROW-1 Title row-1 — Todo" })).toBeTruthy();
+  });
+
+  it("renders the canonical issue facts from the shared surface", () => {
+    const source = issue({
+      id: "row-1",
+      identifier: "SII-184",
+      title: "Canonical title",
+      url: "https://linear.app/siig/issue/SII-184",
+    });
+    const canonical = toIssueQuickLookData(source);
+
+    renderShell([row("row-1")], [source]);
+
+    const link = screen.getByRole("link", {
+      name: `${canonical.identifier} ${canonical.title} — ${canonical.state.name}`,
+    });
+    expect(link.getAttribute("href")).toBe(canonical.url);
+    expect(screen.getByText(canonical.identifier)).toBeTruthy();
+    expect(screen.getByText(canonical.title)).toBeTruthy();
   });
 
   it("opens the shared quick-look when a row is clicked", () => {
