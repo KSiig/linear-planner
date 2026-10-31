@@ -114,18 +114,23 @@ const ISSUE_TABLE = [
   { id: 'sii-114', identifier: 'SII-114', title: 'Publish the history Worker at priskurven.siig.tech',                         state: 'Todo',        milestone: M1, priority: 0, assignee: 'user-kasper', label: 'agentic', startedAt: null,                       completedAt: null,                       blocks: [] },
 ];
 
-const idByIdentifier = new Map(ISSUE_TABLE.map((row) => [row.identifier, row.id]));
+const issueByIdentifier = new Map(ISSUE_TABLE.map((row) => [row.identifier, row]));
 
 // relatedIssue.id is the Linear issue id. A relation is dropped when that id
 // is not in the issue set, so an identifier like "SII-93" draws nothing.
 const ISSUES = Object.freeze(ISSUE_TABLE.map((row, idx) => {
   const relations = row.blocks.map((blocked) => {
-    const id = idByIdentifier.get(blocked);
-    if (!id) throw new Error(`fixture: ${row.identifier} blocks unknown issue ${blocked}`);
+    const related = issueByIdentifier.get(blocked);
+    if (!related) throw new Error(`fixture: ${row.identifier} blocks unknown issue ${blocked}`);
     return {
       id: `rel-${row.identifier}-${blocked}`,
       type: 'blocks',
-      relatedIssue: { id, identifier: blocked },
+      relatedIssue: {
+        id: related.id,
+        identifier: blocked,
+        title: related.title,
+        state: { type: stateByName(related.state).type },
+      },
     };
   });
   return Object.freeze({
