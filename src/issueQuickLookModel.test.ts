@@ -150,4 +150,21 @@ describe("toPlainText", () => {
     expect(toPlainText("  first\n\n second   third  ")).toBe("first second third");
     expect(toPlainText(null)).toBe("");
   });
+
+  it("keeps a numeric entity that is above the highest code point as its own text", () => {
+    expect(toPlainText("before &#999999999; after")).toBe("before &#999999999; after");
+  });
+
+  it("keeps a hexadecimal numeric entity that is above the highest code point as its own text", () => {
+    expect(toPlainText("before &#x110000; after")).toBe("before &#x110000; after");
+  });
+
+  it("keeps a numeric entity that names a surrogate as its own text", () => {
+    expect(toPlainText("before &#xD800; after")).toBe("before &#xD800; after");
+  });
+
+  it("decodes a numeric entity that names a character", () => {
+    expect(toPlainText("a &#128512; b")).toBe("a \u{1F600} b");
+    expect(toPlainText("a &#x1F600; b")).toBe("a \u{1F600} b");
+  });
 });

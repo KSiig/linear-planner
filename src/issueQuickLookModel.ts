@@ -96,11 +96,38 @@ const NAMED_HTML_ENTITIES: Record<string, string> = {
   quot: '"',
 };
 
+/** The highest code point Unicode allows. */
+const MAX_CODE_POINT = 0x10ffff;
+
+/** The first code point of the surrogate range, which is not a valid character. */
+const FIRST_SURROGATE = 0xd800;
+
+/** The last code point of the surrogate range, which is not a valid character. */
+const LAST_SURROGATE = 0xdfff;
+
+/**
+ * The character for a numeric entity, or null when the number is not a
+ * character.
+ *
+ * A code point above the highest Unicode code point, and a code point in the
+ * surrogate range, is not a character. Such an entity stays as its own text.
+ */
+function codePointToCharacter(codePoint: number): string | null {
+  if (!Number.isInteger(codePoint)) return null;
+  if (codePoint < 0 || codePoint > MAX_CODE_POINT) return null;
+  if (codePoint >= FIRST_SURROGATE && codePoint <= LAST_SURROGATE) return null;
+  return String.fromCodePoint(codePoint);
+}
+
 /** Decode the small set of HTML entities that commonly occur in issue bodies. */
 function decodeHtmlEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code: string) => {
-    if (code.startsWith("#x")) return String.fromCodePoint(Number.parseInt(code.slice(2), 16));
-    if (code.startsWith("#")) return String.fromCodePoint(Number.parseInt(code.slice(1), 10));
+    if (code.startsWith("#x")) {
+      return codePointToCharacter(Number.parseInt(code.slice(2), 16)) ?? entity;
+    }
+    if (code.startsWith("#")) {
+      return codePointToCharacter(Number.parseInt(code.slice(1), 10)) ?? entity;
+    }
     return NAMED_HTML_ENTITIES[code.toLowerCase()] ?? entity;
   });
 }
