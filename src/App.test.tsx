@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
 import { reauthorizeWithWriteScope } from "./auth";
-import { deleteIssueRelation, fetchProjectWorkflowStates, issueUpdate } from "./linear";
+import { deleteIssueRelation, fetchProjectWorkflowStates, fetchTeamMembers, fetchIssue, issueUpdate, issueUpdateFields } from "./linear";
 import type { LinearIssue } from "./linear";
 import { fetchScopedById, fetchScopedIssues } from "./applyPlannerQuery";
 import App from "./App";
@@ -32,6 +32,9 @@ vi.mock("./linear", () => ({
   createBlockingRelation: vi.fn(),
   deleteIssueRelation: vi.fn(),
   issueUpdate: vi.fn(async () => undefined),
+  issueUpdateFields: vi.fn(async () => undefined),
+  fetchTeamMembers: vi.fn(async () => []),
+  fetchIssue: vi.fn(async () => null),
   addBlocksRelation: vi.fn(),
   removeRelation: vi.fn((issues: LinearIssue[], relationId: string) => issues.map((issue) => ({
     ...issue,
@@ -88,6 +91,11 @@ beforeEach(() => {
   vi.mocked(fetchScopedIssues).mockResolvedValue([issueFixture]);
   vi.mocked(fetchScopedById).mockResolvedValue([]);
   vi.mocked(deleteIssueRelation).mockResolvedValue(undefined);
+  vi.mocked(fetchTeamMembers).mockResolvedValue([
+    { id: "u1", name: "Kasper", displayName: "Kasper", avatarUrl: null, active: true },
+    { id: "u2", name: "Robin", displayName: "Robin", avatarUrl: null, active: true },
+  ]);
+  vi.mocked(fetchIssue).mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -276,5 +284,121 @@ describe("the shared issue quick-look", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Done" }));
 
     await waitFor(() => expect(issueUpdate).toHaveBeenCalledWith("i1", "s2"));
+  });
+
+  it("reads the issue again when a status change finishes the issue", async () => {
+    const workflowStates = [
+      { id: "s1", name: "Todo", type: "unstarted", position: 1, color: "#888888" },
+      { id: "s2", name: "Done", type: "completed", position: 2, color: "#5e6ad2" },
+    ];
+    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => (
+      fetchRows === fetchProjectWorkflowStates ? workflowStates : []
+    ));
+    const finishedIssue: LinearIssue = {
+      ...issueFixture,
+      completedAt: "2026-11-03T09:00:00.000Z",
+      updatedAt: "2026-11-03T09:00:00.000Z",
+      state: { id: "s2", name: "Done", type: "completed", color: "#5e6ad2", position: 2 },
+    };
+    vi.mocked(fetchIssue).mockResolvedValue(finishedIssue);
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Status: Todo" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Done" }));
+
+    // The completion time comes from Linear, so that one issue is read again.
+    await waitFor(() => expect(fetchIssue).toHaveBeenCalledWith("i1"));
+    await waitFor(() => expect(screen.getByRole("dialog").textContent).toContain("2026-11-03T09:00:00.000Z"));
+  });
+});
+
+describe("the secondary quick-look actions", () => {
+  it("offers the priority, the assignee, and the due date of the issue", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    expect((screen.getByLabelText("Priority") as HTMLSelectElement).value).toBe("2");
+    expect((screen.getByLabelText("Assignee") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toBe("2026-11-02");
+  });
+
+  it("offers the members of the issue team and Unassigned as assignee choices", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    await waitFor(() => expect(fetchTeamMembers).toHaveBeenCalledWith("t1"));
+    const options = Array.from((screen.getByLabelText("Assignee") as HTMLSelectElement).options)
+      .map((option) => option.textContent);
+    expect(options).toEqual(["Unassigned", "Kasper", "Robin"]);
+  });
+
+  it("changes the priority through the shared issue mutation", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "1" } });
+
+    await waitFor(() => expect(issueUpdateFields).toHaveBeenCalledWith("i1", { priority: 1 }));
+  });
+
+  it("changes the assignee and the due date through the shared issue mutation", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "u2" } });
+    await waitFor(() => expect(issueUpdateFields).toHaveBeenCalledWith("i1", { assigneeId: "u2" }));
+
+    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-12-24" } });
+    await waitFor(() => expect(issueUpdateFields).toHaveBeenCalledWith("i1", { dueDate: "2026-12-24" }));
+  });
+
+  it("keeps the old values when the issue mutation fails", async () => {
+    vi.mocked(issueUpdateFields).mockRejectedValue(new Error("Linear rejected the change"));
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "1" } });
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Linear rejected the change");
+    expect((screen.getByLabelText("Priority") as HTMLSelectElement).value).toBe("2");
+  });
+
+  it("reports a missing write scope like the other actions do", async () => {
+    vi.mocked(issueUpdateFields).mockRejectedValue(new Error("Invalid scope: write required"));
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "1" } });
+
+    const reconnect = await screen.findByRole("button", { name: "Reconnect to update Linear" });
+    fireEvent.click(reconnect);
+
+    expect(reauthorizeWithWriteScope).toHaveBeenCalledTimes(1);
+    expect(reauthorizeWithWriteScope).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Invalid scope: write required" }),
+    );
   });
 });

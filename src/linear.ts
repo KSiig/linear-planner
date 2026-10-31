@@ -69,6 +69,16 @@ export interface LinearWorkflowState {
   color: string;
 }
 
+/** A user who is a member of a team. */
+export interface LinearTeamMember {
+  id: string;
+  name: string;
+  displayName: string;
+  avatarUrl: string | null;
+  /** False for a deactivated (suspended) account. */
+  active: boolean;
+}
+
 export interface LinearCycle {
   id: string;
   name: string | null;
@@ -276,6 +286,31 @@ export async function fetchTeamWorkflowStates(teamId: string): Promise<LinearWor
   return data.team.states.nodes;
 }
 
+/**
+ * The users who are members of one team.
+ *
+ * The members of the issue's own team are the only valid assignees for an
+ * issue of that team, so the choices are read from the team and not from the
+ * whole workspace.
+ */
+export async function fetchTeamMembers(teamId: string): Promise<LinearTeamMember[]> {
+  const data = await gql<{
+    team: { members: { nodes: LinearTeamMember[] } } | null;
+  }>(
+    `
+    query($teamId: String!) {
+      team(id: $teamId) {
+        members(first: 50) { nodes { id name displayName avatarUrl active } }
+      }
+    }
+  `,
+    { teamId },
+  );
+
+  if (!data.team) throw new Error("Team not found");
+  return data.team.members.nodes;
+}
+
 export async function fetchProjectWorkflowStates(projectId: string): Promise<LinearWorkflowState[]> {
   const teamIds = await fetchProjectTeamIds(projectId);
   const allStates: LinearWorkflowState[] = [];
@@ -425,6 +460,43 @@ export async function fetchTeamIssues(teamId: string): Promise<OverviewCardIssue
   return allIssues;
 }
 
+/** The issue fields the planner reads. */
+const ISSUE_FIELDS = `
+  id
+  identifier
+  title
+  url
+  priority
+  priorityLabel
+  sortOrder
+  startedAt
+  completedAt
+  dueDate
+  description
+  updatedAt
+  createdAt
+  assignee { id name avatarUrl }
+  state { id name type color position }
+  team { id }
+  projectMilestone { id name sortOrder }
+  project { id name }
+  labels { nodes { name color } }
+  relations {
+    nodes {
+      id
+      type
+      relatedIssue { id identifier title state { type } }
+    }
+  }
+  inverseRelations {
+    nodes {
+      id
+      type
+      relatedIssue { id identifier title state { type } }
+    }
+  }
+`;
+
 export async function fetchProjectIssues(projectId: string): Promise<LinearIssue[]> {
   // Use small page size to stay under Linear's query complexity limit (10000)
   // Nested relations + cycle multiplies complexity per issue
@@ -445,41 +517,7 @@ export async function fetchProjectIssues(projectId: string): Promise<LinearIssue
       query($projectId: String!, $after: String) {
         project(id: $projectId) {
           issues(first: 20, after: $after) {
-            nodes {
-              id
-              identifier
-              title
-              url
-              priority
-              priorityLabel
-              sortOrder
-              startedAt
-              completedAt
-              dueDate
-              description
-              updatedAt
-              createdAt
-              assignee { id name avatarUrl }
-              state { id name type color position }
-              team { id }
-              projectMilestone { id name sortOrder }
-              project { id name }
-              labels { nodes { name color } }
-              relations {
-                nodes {
-                  id
-                  type
-                  relatedIssue { id identifier title state { type } }
-                }
-              }
-              inverseRelations {
-                nodes {
-                  id
-                  type
-                  relatedIssue { id identifier title state { type } }
-                }
-              }
-            }
+            nodes {${ISSUE_FIELDS}}
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -494,6 +532,26 @@ export async function fetchProjectIssues(projectId: string): Promise<LinearIssue
   }
 
   return allIssues.filter(isPlannableIssue);
+}
+
+/**
+ * Read one issue again.
+ *
+ * A write that finishes an issue leaves facts the planner must not invent —
+ * the completion time and the update time. Those come from Linear, so the one
+ * issue is read again instead of being guessed.
+ */
+export async function fetchIssue(issueId: string): Promise<LinearIssue | null> {
+  const data = await gql<{ issue: LinearIssue | null }>(
+    `
+    query($id: String!) {
+      issue(id: $id) {${ISSUE_FIELDS}}
+    }
+  `,
+    { id: issueId },
+  );
+
+  return data.issue ?? null;
 }
 
 /**
@@ -595,6 +653,54 @@ export async function issueUpdate(issueId: string, stateId: string): Promise<voi
     throw new LinearApiError("graphql", `Linear returned no state change result for issue ${issueId}.`);
   }
   throw new LinearApiError("graphql", `Linear did not move issue ${issueId} to state ${stateId}.`);
+}
+
+/**
+ * The fields one issue mutation can change.
+ *
+ * Only the fields that are set are sent, so a change never clears a field it
+ * does not mention. A field that is sent as null is cleared by Linear.
+ */
+export interface IssueUpdateFields {
+  /** The workflow state the issue moves to. */
+  stateId?: string;
+  /** The priority of the issue: 0 = No priority, 1 = Urgent, 2 = High, 3 = Medium, 4 = Low. */
+  priority?: number;
+  /** The id of the user to assign the issue to, or null to unassign the issue. */
+  assigneeId?: string | null;
+  /** The due date as `YYYY-MM-DD`, or null to clear the due date. */
+  dueDate?: string | null;
+}
+
+/**
+ * Change the fields of one issue.
+ *
+ * This is the same `issueUpdate` mutation the status change uses, with the
+ * changed fields as one input object. Linear clears the assignee and the due
+ * date when they are sent as null.
+ *
+ * The mutation reports the outcome through its `success` flag. A response
+ * without that flag is not a success, so the failure is reported as an error
+ * instead. Requires the `write` OAuth scope.
+ */
+export async function issueUpdateFields(issueId: string, fields: IssueUpdateFields): Promise<void> {
+  const data = await gql<{ issueUpdate?: { success?: boolean } | null }>(
+    `
+    mutation IssueUpdateFields($id: String!, $input: IssueUpdateInput!) {
+      issueUpdate(id: $id, input: $input) {
+        success
+      }
+    }
+  `,
+    { id: issueId, input: fields },
+  );
+
+  const result = data?.issueUpdate;
+  if (result?.success === true) return;
+  if (!result) {
+    throw new LinearApiError("graphql", `Linear returned no update result for issue ${issueId}.`);
+  }
+  throw new LinearApiError("graphql", `Linear did not update issue ${issueId}.`);
 }
 
 /**

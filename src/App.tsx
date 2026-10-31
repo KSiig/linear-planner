@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
-import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation, issueUpdate } from "./linear";
-import type { LinearProject, LinearIssue, LinearMilestone, LinearWorkflowState } from "./linear";
+import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation, issueUpdate, issueUpdateFields, fetchTeamMembers, fetchIssue } from "./linear";
+import type { LinearProject, LinearIssue, LinearMilestone, LinearWorkflowState, LinearTeamMember } from "./linear";
 import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isAutoRefreshEnabled, setAutoRefreshEnabled, isOAuthScopeError, reauthorizeWithWriteScope } from "./auth";
 import { DependencyTree } from "./DependencyTree";
 import { DeadlineTimeline } from "./DeadlineTimeline";
@@ -30,6 +30,8 @@ import { FilterMenu } from "./views/filters/FilterMenu";
 import { FilterChips } from "./views/filters/FilterChips";
 import { ViewMenu } from "./views/filters/ViewMenu";
 import { IssueQuickLook } from "./IssueQuickLook";
+import { IssueQuickLookActions } from "./IssueQuickLookActions";
+import { applyQuickLookActionToIssue, toIssueUpdateFields, type IssueQuickLookAction } from "./issueQuickLookActions";
 import { toIssueQuickLookData, type IssueQuickLookData } from "./issueQuickLookModel";
 import { IssueQuickLookSurfaceContext } from "./issueQuickLookContext";
 import { IssueLongPressContext, useIssueLongPressController } from "./issueInteraction";
@@ -101,6 +103,16 @@ function removeRelationEverywhere(issues: LinearIssue[], relationId: string): Li
 }
 
 /**
+ * True for the workflow state types that close an issue.
+ *
+ * An issue in one of these states has a completion time in Linear, so that
+ * time is read from Linear instead of being made up.
+ */
+function isClosingStateType(stateType: string): boolean {
+  return stateType === "completed" || stateType === "canceled";
+}
+
+/**
  * The data the quick-look holds before the user picks an issue.
  *
  * The quick-look needs an issue, but the app only knows one after a click.
@@ -128,6 +140,9 @@ const NO_ISSUE: IssueQuickLookData = {
   blockedBy: [],
   blocks: [],
 };
+
+/** The assignee choices before the team members are known. */
+const NO_TEAM_MEMBERS: readonly LinearTeamMember[] = [];
 
 export default function App() {
   const [connected, setConnected] = useState(false);
@@ -198,6 +213,34 @@ export default function App() {
     () => (selectedIssue ? toIssueQuickLookData(selectedIssue) : NO_ISSUE),
     [selectedIssue],
   );
+
+  // The team of the selected issue. The assignee choices are scoped to it, the
+  // same scope the status choices use.
+  const selectedTeamId = selectedIssue?.team.id ?? null;
+
+  // The members of the selected issue's team.
+  const [teamMembers, setTeamMembers] = useState<{ teamId: string; members: LinearTeamMember[] } | null>(null);
+
+  useEffect(() => {
+    if (!selectedTeamId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const members = await fetchTeamMembers(selectedTeamId);
+        if (!cancelled) setTeamMembers({ teamId: selectedTeamId, members });
+      } catch {
+        if (!cancelled) setTeamMembers({ teamId: selectedTeamId, members: [] });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTeamId]);
+
+  // The members of the team of the issue that is shown right now.
+  const issueTeamMembers = teamMembers && teamMembers.teamId === selectedTeamId
+    ? teamMembers.members
+    : NO_TEAM_MEMBERS;
 
   // Restore session on mount (or handle OAuth callback)
   useEffect(() => {
@@ -460,7 +503,37 @@ export default function App() {
           }
         : issue
     )));
+    // A finished issue gets its completion time from Linear, so that one issue
+    // is read again instead of guessing the time.
+    if (!isClosingStateType(state.type)) return;
+    try {
+      const fresh = await fetchIssue(issueId);
+      if (fresh) setProjectIssues((prev) => prev.map((issue) => (issue.id === issueId ? fresh : issue)));
+    } catch {
+      // The status change stands; only the read of the issue did not work out.
+    }
   }, [workflowStates]);
+
+  /**
+   * Change the priority, the assignee, or the due date of an issue.
+   *
+   * The issue moves to the new values right away and falls back to the values
+   * it had when the write fails.
+   */
+  const handleQuickLookAction = useCallback(async (issueId: string, action: IssueQuickLookAction) => {
+    const before = projectIssues.find((issue) => issue.id === issueId);
+    if (!before) return;
+    setProjectIssues((prev) => prev.map((issue) => (
+      issue.id === issueId ? applyQuickLookActionToIssue(issue, action) : issue
+    )));
+    try {
+      await issueUpdateFields(issueId, toIssueUpdateFields(action));
+    } catch (err) {
+      if (isOAuthScopeError(err)) setScopeError(err);
+      setProjectIssues((prev) => prev.map((issue) => (issue.id === issueId ? before : issue)));
+      throw err;
+    }
+  }, [projectIssues]);
 
   const rememberView = useCallback((view: SavedView | null) => {
     setActiveViewId(view?.id ?? null);
@@ -765,6 +838,13 @@ export default function App() {
               startedStates={startedStates}
               onStatusChange={handleStatusChange}
               onRemoveBlocker={handleDeleteRelation}
+              secondaryActions={(
+                <IssueQuickLookActions
+                  data={quickLookData}
+                  teamMembers={issueTeamMembers}
+                  onAction={handleQuickLookAction}
+                />
+              )}
               trigger={(triggerProps) => (
                 <IssueLongPressContext.Provider value={longPressController}>
                   <IssueQuickLookSurfaceContext.Provider
