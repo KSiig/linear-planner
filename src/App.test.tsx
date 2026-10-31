@@ -7,6 +7,7 @@ import { deleteIssueRelation, fetchProjects, fetchProjectTeamIds, fetchTeamWorkf
 import type { LinearIssue } from "./linear";
 import { fetchScopedById, fetchScopedIssues } from "./applyPlannerQuery";
 import App from "./App";
+import { addCalendarDays, localToday } from "./dueWindows";
 
 vi.mock("./auth", async () => {
   const actual = await vi.importActual<typeof import("./auth")>("./auth");
@@ -459,5 +460,121 @@ describe("the status filter", () => {
 
     expect(screen.getByRole("button", { name: "Todo · SII" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Todo · WEB" })).toBeTruthy();
+  });
+});
+
+describe("the due-window settings", () => {
+  /** The day the fixture issue is due, so the test does not depend on today. */
+  const dueDate = addCalendarDays(localToday(new Date()), 20);
+
+  async function openSettings() {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    return screen.findByLabelText("Next window (days)");
+  }
+
+  it("shows both boundaries with their current values", async () => {
+    const next = await openSettings();
+    expect(next.getAttribute("value")).toBe("14");
+    expect(screen.getByLabelText("Soon window (days)").getAttribute("value")).toBe("45");
+  });
+
+  it("stores a valid pair under one versioned key and applies it without a reload", async () => {
+    const next = await openSettings();
+    fireEvent.change(next, { target: { value: "30" } });
+
+    expect(localStorage.getItem("linear-planner:due-windows:v1")).toBe('{"nextEndDays":30,"soonEndDays":45}');
+    expect(screen.getByLabelText("Next window (days)").getAttribute("value")).toBe("30");
+  });
+
+  it("refuses a value outside its range and keeps the previous boundaries", async () => {
+    const next = await openSettings();
+    fireEvent.change(next, { target: { value: "200" } });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(localStorage.getItem("linear-planner:due-windows:v1")).toBeNull();
+    expect(screen.getByLabelText("Next window (days)").getAttribute("value")).toBe("14");
+  });
+
+  it("refuses a Soon boundary below the Next boundary and keeps the previous boundaries", async () => {
+    const next = await openSettings();
+    fireEvent.change(next, { target: { value: "60" } });
+    fireEvent.change(screen.getByLabelText("Soon window (days)"), { target: { value: "30" } });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(localStorage.getItem("linear-planner:due-windows:v1")).toBeNull();
+  });
+
+  it("puts the due windows of the Overview in line with the new boundaries", async () => {
+    vi.mocked(fetchScopedIssues).mockResolvedValue([
+      { ...issueFixture, dueDate, state: { ...issueFixture.state, type: "unstarted" } },
+    ]);
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    // The issue is due after the standard Next window, so the Next card has
+    // no rows and shows nothing.
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Next" })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.change(await screen.findByLabelText("Next window (days)"), { target: { value: "30" } });
+
+    // The card loads again with the new boundary, without the page reloading.
+    expect(await screen.findByRole("heading", { name: "Next" })).toBeTruthy();
+  });
+
+  it("keeps a local issue edit when the due windows change", async () => {
+    const blockedIssue: LinearIssue = {
+      ...issueFixture,
+      inverseRelations: {
+        nodes: [{
+          id: "rel-1",
+          type: "blocks",
+          relatedIssue: { id: "i2", identifier: "ABC-2", title: "Blocked issue", state: { type: "unstarted" } },
+        }],
+      },
+    };
+    vi.mocked(fetchScopedIssues).mockResolvedValue([blockedIssue]);
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+
+    // The blocker is removed from the quick-look. That is a local edit: it is
+    // in the loaded issues, not in the issues as they were fetched.
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove blocker ABC-2" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove blocker ABC-2" })).toBeNull());
+
+    // The due windows change, so the loaded issues are filtered again.
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.change(await screen.findByLabelText("Next window (days)"), { target: { value: "30" } });
+
+    // The quick-look is still open, and the local edit is still in place: the
+    // blocker does not come back.
+    expect(screen.queryByRole("dialog", { name: "Ship the dates view" })).not.toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove blocker ABC-2" })).toBeNull());
+  });
+
+  it("clears the error when the fields go back to the saved values", async () => {
+    const next = await openSettings();
+    // A Soon boundary below the Next one cannot be used. The value stays in
+    // the field, so the other field can be raised to meet it.
+    fireEvent.change(next, { target: { value: "60" } });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+
+    // The field loses focus, so the draft goes back to the saved values and
+    // the error for the rejected value goes with it.
+    fireEvent.focusOut(next);
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByLabelText("Next window (days)").getAttribute("value")).toBe("14");
+    expect(screen.getByLabelText("Soon window (days)").getAttribute("value")).toBe("45");
   });
 });

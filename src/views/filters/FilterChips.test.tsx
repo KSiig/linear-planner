@@ -158,4 +158,12 @@ describe("the status and due chips", () => {
     renderChips(query);
     expect(screen.getByRole("button", { name: "Due Soon" })).toBeTruthy();
   });
+
+  it("keeps the due window name in the chip, so a saved view follows the browser's boundaries", () => {
+    const query: PlannerQuery = { ...emptyPlannerQuery(), dueWindow: "next" };
+    renderChips(query);
+    const chip = screen.getByRole("button", { name: "Due Next" });
+    expect(chip.textContent).toContain("Next");
+    expect(chip.textContent).not.toContain("day");
+  });
 });
