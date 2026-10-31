@@ -89,10 +89,15 @@ describe("later card", () => {
     expect(laterCard.appearance?.scroll).toBe("body");
   });
 
-  it("places later last in overviewCardOrder when the other four modules are present", () => {
-    expect(overviewCardOrder).toEqual(["overdue", "next", "soon", "no-date", "later"]);
-    expect(overviewCardOrder.at(-1)).toBe("later");
-    expect(overviewCards.map((card) => card.id)).toContain("later");
-    expect(overviewCards.at(-1)?.id).toBe("later");
+  it("places later after the other due-date cards in overviewCardOrder", () => {
+    // The due-date cards keep their order. Cards registered after them — the
+    // fact-based activity cards — follow, so `later` is no longer the last id
+    // in the registry.
+    const order = overviewCardOrder as readonly string[];
+    expect(order.slice(0, 5)).toEqual(["overdue", "next", "soon", "no-date", "later"]);
+    expect(order.indexOf("later")).toBeGreaterThan(order.indexOf("no-date"));
+    const ids = overviewCards.map((card) => card.id);
+    expect(ids).toContain("later");
+    expect(ids.indexOf("later")).toBeGreaterThan(ids.indexOf("no-date"));
   });
 });
