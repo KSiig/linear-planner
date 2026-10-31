@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LinearIssue } from "./linear";
 import { DAY_WIDTH, POINT_MARKER_SIZE } from "./deadlineTimelineLayout";
 import { DeadlineTimeline } from "./DeadlineTimeline";
+import { IssueQuickLookSurfaceContext, type IssueQuickLookSurface } from "./issueQuickLookContext";
 
 afterEach(() => {
   cleanup();
@@ -54,7 +55,7 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    const due = screen.getByRole("listitem", { name: "Due 2026-04-08 — SII-1 Fix login (M1)" });
+    const due = screen.getByRole("link", { name: "Due 2026-04-08 — SII-1 Fix login (M1) — Todo" });
     expect(due.getAttribute("data-fact")).toBe("due");
     expect(due.getAttribute("data-date")).toBe("2026-04-08");
   });
@@ -69,8 +70,8 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    const first = screen.getByRole("listitem", { name: /^Due 2026-04-08/ });
-    const second = screen.getByRole("listitem", { name: /^Due 2026-04-10/ });
+    const first = screen.getByRole("link", { name: /^Due 2026-04-08/ });
+    const second = screen.getByRole("link", { name: /^Due 2026-04-10/ });
     expect(first.style.left).toBe(`${(DAY_WIDTH - POINT_MARKER_SIZE) / 2}px`);
     expect(second.style.left).toBe(`${2 * DAY_WIDTH + (DAY_WIDTH - POINT_MARKER_SIZE) / 2}px`);
   });
@@ -91,11 +92,11 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    const started = screen.getByRole("listitem", {
-      name: "Entered started status 2026-03-02 — SII-1 Fix login (M1)",
+    const started = screen.getByRole("link", {
+      name: "Entered started status 2026-03-02 — SII-1 Fix login (M1) — Todo",
     });
-    const completed = screen.getByRole("listitem", {
-      name: "Completed 2026-03-20 — SII-1 Fix login (M1)",
+    const completed = screen.getByRole("link", {
+      name: "Completed 2026-03-20 — SII-1 Fix login (M1) — Todo",
     });
     expect(started.getAttribute("data-date")).toBe("2026-03-02");
     expect(completed.getAttribute("data-date")).toBe("2026-03-20");
@@ -117,7 +118,7 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    const markers = screen.getAllByRole("listitem");
+    const markers = screen.getAllByRole("link");
     expect(markers.length).toBe(4);
     for (const marker of markers) {
       expect(marker.getAttribute("aria-label")).toBeTruthy();
@@ -134,7 +135,7 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    for (const marker of screen.getAllByRole("listitem")) {
+    for (const marker of screen.getAllByRole("link")) {
       expect(marker.style.width).toBe(`${POINT_MARKER_SIZE}px`);
       expect(marker.style.height).toBe(`${POINT_MARKER_SIZE}px`);
     }
@@ -155,8 +156,8 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    const span = screen.getByRole("listitem", {
-      name: "In started status 2026-03-02 to 2026-03-20 — SII-1 Fix login",
+    const span = screen.getByRole("link", {
+      name: "In started status 2026-03-02 to 2026-03-20 — SII-1 Fix login — Todo",
     });
     expect(span.getAttribute("data-fact")).toBe("statusHistory");
     expect(span.style.height).toBe("4px");
@@ -172,7 +173,7 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    expect(screen.queryByRole("listitem", { name: /^In started status/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^In started status/ })).toBeNull();
   });
 
   it("gives a closed issue its completed event but no due marker", () => {
@@ -190,8 +191,8 @@ describe("DeadlineTimeline", () => {
       />,
     );
 
-    expect(screen.queryByRole("listitem", { name: /^Due/ })).toBeNull();
-    expect(screen.getByRole("listitem", { name: /^Completed 2026-03-20/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /^Due/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /^Completed 2026-03-20/ })).toBeTruthy();
   });
 
   it("groups the issues by milestone", () => {
@@ -241,7 +242,7 @@ describe("DeadlineTimeline", () => {
     );
 
     const lanes = screen
-      .getAllByRole("listitem")
+      .getAllByRole("link")
       .map((marker) => marker.getAttribute("data-lane"))
       .sort();
     expect(lanes).toEqual(["0", "1"]);
@@ -282,12 +283,89 @@ describe("DeadlineTimeline", () => {
     );
 
     expect(
-      screen.getByRole("link", { name: "SII-9 No deadline — no due date" }),
+      screen.getByRole("link", { name: "SII-9 No deadline — Todo" }),
     ).toBeTruthy();
   });
 
   it("renders nothing when no issue is given", () => {
     const { container } = render(<DeadlineTimeline issues={[]} />);
     expect(container.textContent).toBe("");
+  });
+});
+
+/** Renders the timeline with the contract the app shares with its surfaces. */
+function renderTimeline(issues: LinearIssue[]) {
+  const openIssue = vi.fn();
+  const surface: IssueQuickLookSurface = {
+    trigger: {
+      onClick: vi.fn(),
+      "aria-haspopup": "dialog",
+      "aria-expanded": false,
+      "aria-controls": "quick-look-dialog",
+    },
+    selectedIssueId: null,
+    openIssue,
+    issueById: (id) => issues.find((candidate) => candidate.id === id),
+  };
+  const view = render(
+    <IssueQuickLookSurfaceContext.Provider value={surface}>
+      <DeadlineTimeline issues={issues} />
+    </IssueQuickLookSurfaceContext.Provider>,
+  );
+  return { ...view, openIssue };
+}
+
+describe("the deadline timeline quick-look interaction", () => {
+  it("opens the shared quick-look when an undated row is clicked", () => {
+    const { openIssue } = renderTimeline([
+      issue({ id: "a", identifier: "SII-9", title: "No deadline" }),
+    ]);
+
+    fireEvent.click(screen.getByRole("link", { name: "SII-9 No deadline — Todo" }));
+
+    expect(openIssue).toHaveBeenCalledTimes(1);
+    expect(openIssue.mock.calls[0]?.[0]).toBe("a");
+  });
+
+  it("keeps the link behaviour of the browser on a ctrl-click", () => {
+    const { openIssue } = renderTimeline([
+      issue({ id: "a", identifier: "SII-9", title: "No deadline" }),
+    ]);
+    const link = screen.getByRole("link", { name: "SII-9 No deadline — Todo" });
+    // The browser follows the link on a ctrl-click. The listener keeps the test
+    // page and reads whether the surface stopped the link first.
+    let preventedBySurface = true;
+    const keepTheTestPage = (event: Event) => {
+      preventedBySurface = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", keepTheTestPage);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    fireEvent(link, event);
+    document.removeEventListener("click", keepTheTestPage);
+
+    expect(openIssue).not.toHaveBeenCalled();
+    expect(preventedBySurface).toBe(false);
+  });
+
+  it("opens the shared quick-look from the keyboard", () => {
+    const { openIssue } = renderTimeline([
+      issue({ id: "a", identifier: "SII-9", title: "No deadline" }),
+    ]);
+
+    fireEvent.keyDown(screen.getByRole("link", { name: "SII-9 No deadline — Todo" }), { key: " " });
+
+    expect(openIssue).toHaveBeenCalledTimes(1);
+  });
+
+  it("points every marker at the issue it belongs to", () => {
+    renderTimeline([
+      issue({ id: "a", identifier: "SII-1", title: "Fix login", dueDate: "2026-04-08" }),
+    ]);
+
+    const marker = screen.getByRole("link", { name: /^Due 2026-04-08/ });
+    expect(marker.getAttribute("href")).toBe("https://linear.app/issue/SII-1");
+    expect(marker.getAttribute("target")).toBe("_blank");
+    expect(marker.getAttribute("rel")).toBe("noopener noreferrer");
   });
 });

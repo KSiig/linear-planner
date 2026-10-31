@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
 import { reauthorizeWithWriteScope } from "./auth";
-import { deleteIssueRelation } from "./linear";
+import { deleteIssueRelation, fetchProjectWorkflowStates, issueUpdate } from "./linear";
 import type { LinearIssue } from "./linear";
-import { fetchScopedIssues } from "./applyPlannerQuery";
+import { fetchScopedById, fetchScopedIssues } from "./applyPlannerQuery";
 import App from "./App";
 
 vi.mock("./auth", async () => {
@@ -31,6 +31,7 @@ vi.mock("./linear", () => ({
   fetchProjectWorkflowStates: vi.fn(async () => []),
   createBlockingRelation: vi.fn(),
   deleteIssueRelation: vi.fn(),
+  issueUpdate: vi.fn(async () => undefined),
   addBlocksRelation: vi.fn(),
   removeRelation: vi.fn(),
 }));
@@ -64,18 +65,22 @@ const issueFixture: LinearIssue = {
   dueDate: "2026-11-02",
   description: null,
   updatedAt: "2026-10-01T00:00:00.000Z",
+  createdAt: "2026-09-01T00:00:00.000Z",
   state: { id: "s1", name: "Todo", type: "unstarted", color: "#888888", position: 1 },
   team: { id: "t1" },
   assignee: null,
   projectMilestone: null,
+  project: { id: "p1", name: "P" },
   labels: { nodes: [] },
   relations: { nodes: [] },
+  inverseRelations: { nodes: [] },
 };
 
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.mocked(fetchScopedIssues).mockResolvedValue([issueFixture]);
+  vi.mocked(fetchScopedById).mockResolvedValue([]);
   vi.mocked(deleteIssueRelation).mockResolvedValue(undefined);
 });
 
@@ -162,5 +167,71 @@ describe("display tabs", () => {
       expect.objectContaining({ message: "Invalid scope: write required" }),
     );
     expect(alertSpy).toHaveBeenCalled();
+  });
+});
+
+describe("the shared issue quick-look", () => {
+  it("opens the quick-look when an issue of the timeline is clicked", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Ship the dates view" });
+    expect(dialog.textContent).toContain("ABC-1");
+    expect(dialog.textContent).toContain("High");
+  });
+
+  it("keeps an Open in Linear link inside the quick-look", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    const link = screen.getByRole("link", { name: "Open in Linear" });
+    expect(link.getAttribute("href")).toBe("https://linear.app/example/issue/ABC-1");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("keeps the link behaviour of the browser on a ctrl-click", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    const marker = await screen.findByRole("link", { name: /^Due 2026-11-02/ });
+    // The browser follows the link on a ctrl-click. The listener keeps the test
+    // page and reads whether the surface stopped the link first.
+    let preventedBySurface = true;
+    const keepTheTestPage = (event: Event) => {
+      preventedBySurface = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", keepTheTestPage);
+    fireEvent(marker, new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true }));
+    document.removeEventListener("click", keepTheTestPage);
+
+    expect(preventedBySurface).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("changes the status of the issue from the quick-look", async () => {
+    const workflowStates = [
+      { id: "s1", name: "Todo", type: "unstarted", position: 1, color: "#888888" },
+      { id: "s2", name: "Done", type: "completed", position: 2, color: "#5e6ad2" },
+    ];
+    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => (
+      fetchRows === fetchProjectWorkflowStates ? workflowStates : []
+    ));
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Status: Todo" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Done" }));
+
+    await waitFor(() => expect(issueUpdate).toHaveBeenCalledWith("i1", "s2"));
   });
 });

@@ -59,6 +59,10 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
+  /* The row is a link, so it keeps the font the button had. */
+  font-family: inherit;
+  font-size: 13.3333px;
+  text-decoration: none;
 }
 
 .overview-card-title {

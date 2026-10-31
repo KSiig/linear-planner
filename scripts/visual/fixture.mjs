@@ -139,13 +139,17 @@ const ISSUES = Object.freeze(ISSUE_TABLE.map((row, idx) => {
     startedAt: row.startedAt,
     completedAt: row.completedAt,
     updatedAt: row.startedAt ?? FALLBACK_UPDATED_AT,
+    createdAt: row.startedAt ?? FALLBACK_UPDATED_AT,
     dueDate: DUE_BY_IDENTIFIER[row.identifier] ?? null,
+    description: null,
+    team: { id: TEAM.id },
     project: { id: PROJECT.id, name: PROJECT.name },
     state: stateByName(row.state),
     assignee: userById(row.assignee),
     projectMilestone: milestoneByName(row.milestone),
     labels: { nodes: [{ name: row.label, color: row.label === 'human' ? '#EB5757' : '#4EA7FC' }] },
     relations: { nodes: relations },
+    inverseRelations: { nodes: [] },
   });
 }));
 
