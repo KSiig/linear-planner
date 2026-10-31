@@ -1,10 +1,26 @@
-import { addCalendarDays } from "./views/overview/calendar";
+import { DUE_WINDOW_OPTIONS, matchesDueWindow, type DueWindow } from "./dueWindows";
 
-export type DueWindow = "overdue" | "next" | "soon" | "later" | "none";
+// The due windows live in the due-window module. The type is re-exported here
+// because the query keeps the window in its filters.
+export type { DueWindow };
 
 export interface PlannerQuery {
   projectIds: string[];
+  /**
+   * The legacy state-type filter.
+   *
+   * Saved views and stored queries from before the Status filter moved to
+   * concrete states still carry it. It keeps filtering by Linear's internal
+   * state type, so an old filter still shows the same issues.
+   */
   stateTypes: string[];
+  /**
+   * The workflow state ids the Status filter selects.
+   *
+   * Optional because a stored query from before the Status filter moved to
+   * concrete states has no state ids. `normalizePlannerQuery` fills them in.
+   */
+  stateIds?: string[];
   assigneeIds: string[];
   priorities: number[];
   labelNames: string[];
@@ -12,17 +28,35 @@ export interface PlannerQuery {
   dueWindow: DueWindow | null;
 }
 
-const DUE_WINDOWS = new Set<DueWindow>(["overdue", "next", "soon", "later", "none"]);
-
 export function emptyPlannerQuery(): PlannerQuery {
   return {
     projectIds: [],
     stateTypes: [],
+    stateIds: [],
     assigneeIds: [],
     priorities: [],
     labelNames: [],
     milestoneIds: [],
     dueWindow: null,
+  };
+}
+
+/**
+ * A query in the shape the planner stores it.
+ *
+ * The keys keep one order, so two queries with the same filters read as the
+ * same query.
+ */
+export function normalizePlannerQuery(query: PlannerQuery): PlannerQuery {
+  return {
+    projectIds: query.projectIds,
+    stateTypes: query.stateTypes,
+    stateIds: query.stateIds ?? [],
+    assigneeIds: query.assigneeIds,
+    priorities: query.priorities,
+    labelNames: query.labelNames,
+    milestoneIds: query.milestoneIds,
+    dueWindow: query.dueWindow,
   };
 }
 
@@ -36,13 +70,18 @@ export function isPlannerQuery(value: unknown): value is PlannerQuery {
   return (
     isStringArray(query.projectIds) &&
     isStringArray(query.stateTypes) &&
+    (query.stateIds === undefined || isStringArray(query.stateIds)) &&
     isStringArray(query.assigneeIds) &&
     Array.isArray(query.priorities) &&
     query.priorities.every((item) => typeof item === "number" && Number.isFinite(item)) &&
     isStringArray(query.labelNames) &&
     isStringArray(query.milestoneIds) &&
-    (query.dueWindow === null || (typeof query.dueWindow === "string" && DUE_WINDOWS.has(query.dueWindow as DueWindow)))
+    (query.dueWindow === null || (typeof query.dueWindow === "string" && isDueWindow(query.dueWindow)))
   );
+}
+
+function isDueWindow(value: string): value is DueWindow {
+  return DUE_WINDOW_OPTIONS.some((option) => option.id === value);
 }
 
 export function scopeProjectIds(query: PlannerQuery, selectableProjectIds: readonly string[]): string[] {
@@ -52,30 +91,12 @@ export function scopeProjectIds(query: PlannerQuery, selectableProjectIds: reado
 
 export interface QueryIssue {
   project?: { id?: string } | null;
-  state?: { type?: string } | null;
+  state?: { id?: string; type?: string } | null;
   assignee?: { id?: string } | null;
   priority?: number;
   labels?: { nodes?: Array<{ name?: string } | null> | null } | null;
   projectMilestone?: { id?: string } | null;
   dueDate?: string | null;
-}
-
-function dueDay(dueDate: string): string {
-  return dueDate.slice(0, 10);
-}
-
-function matchesDue(dueDate: string | null | undefined, window: DueWindow, today: string): boolean {
-  if (window === "none") return dueDate == null;
-  if (dueDate == null || dueDate === "") return false;
-  const day = dueDay(dueDate);
-  const nextEnd = addCalendarDays(today, 14);
-  const soonStart = addCalendarDays(today, 15);
-  const soonEnd = addCalendarDays(today, 45);
-  const laterStart = addCalendarDays(today, 46);
-  if (window === "overdue") return day < today;
-  if (window === "next") return day >= today && day <= nextEnd;
-  if (window === "soon") return day >= soonStart && day <= soonEnd;
-  return day >= laterStart;
 }
 
 export function matchesQuery(
@@ -86,6 +107,9 @@ export function matchesQuery(
   const projectId = issue.project?.id ?? "";
   if (projectId === "") return false;
   if (query.projectIds.length > 0 && !query.projectIds.includes(projectId)) return false;
+
+  const stateIds = query.stateIds ?? [];
+  if (stateIds.length > 0 && !stateIds.includes(issue.state?.id ?? "")) return false;
 
   if (query.stateTypes.length > 0 && !query.stateTypes.includes(issue.state?.type ?? "")) return false;
 
@@ -105,7 +129,7 @@ export function matchesQuery(
 
   if (query.milestoneIds.length > 0 && !query.milestoneIds.includes(issue.projectMilestone?.id ?? "")) return false;
 
-  if (query.dueWindow !== null && !matchesDue(issue.dueDate, query.dueWindow, today)) return false;
+  if (query.dueWindow !== null && !matchesDueWindow(issue.dueDate, query.dueWindow, today)) return false;
 
   return true;
 }

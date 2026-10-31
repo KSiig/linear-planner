@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "./plannerQuery";
 import { reauthorizeWithWriteScope } from "./auth";
-import { deleteIssueRelation, fetchProjectWorkflowStates, fetchTeamMembers, fetchIssue, issueUpdate, issueUpdateFields } from "./linear";
+import { deleteIssueRelation, fetchProjects, fetchProjectTeamIds, fetchTeamWorkflowStates, fetchTeamMembers, fetchIssue, issueUpdate, issueUpdateFields } from "./linear";
 import type { LinearIssue } from "./linear";
 import { fetchScopedById, fetchScopedIssues } from "./applyPlannerQuery";
 import App from "./App";
@@ -28,7 +28,8 @@ vi.mock("./linear", () => ({
   fetchProjects: vi.fn(async () => [{ id: "p1", name: "P", teams: { nodes: [] }, hasIssues: true }]),
   fetchProjectCycles: vi.fn(async () => []),
   fetchProjectMilestones: vi.fn(async () => []),
-  fetchProjectWorkflowStates: vi.fn(async () => []),
+  fetchProjectTeamIds: vi.fn(async () => ["t1"]),
+  fetchTeamWorkflowStates: vi.fn(async () => []),
   createBlockingRelation: vi.fn(),
   deleteIssueRelation: vi.fn(),
   issueUpdate: vi.fn(async () => undefined),
@@ -270,9 +271,8 @@ describe("the shared issue quick-look", () => {
       { id: "s1", name: "Todo", type: "unstarted", position: 1, color: "#888888" },
       { id: "s2", name: "Done", type: "completed", position: 2, color: "#5e6ad2" },
     ];
-    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => (
-      fetchRows === fetchProjectWorkflowStates ? workflowStates : []
-    ));
+    vi.mocked(fetchTeamWorkflowStates).mockResolvedValue(workflowStates);
+    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => fetchRows("p1"));
 
     window.history.pushState(null, "", "/p1/");
     render(<App />);
@@ -291,9 +291,8 @@ describe("the shared issue quick-look", () => {
       { id: "s1", name: "Todo", type: "unstarted", position: 1, color: "#888888" },
       { id: "s2", name: "Done", type: "completed", position: 2, color: "#5e6ad2" },
     ];
-    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => (
-      fetchRows === fetchProjectWorkflowStates ? workflowStates : []
-    ));
+    vi.mocked(fetchTeamWorkflowStates).mockResolvedValue(workflowStates);
+    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => fetchRows("p1"));
     const finishedIssue: LinearIssue = {
       ...issueFixture,
       completedAt: "2026-11-03T09:00:00.000Z",
@@ -400,5 +399,54 @@ describe("the secondary quick-look actions", () => {
     expect(reauthorizeWithWriteScope).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Invalid scope: write required" }),
     );
+  });
+});
+
+describe("the status filter", () => {
+  it("offers the concrete workflow states instead of their internal types", async () => {
+    vi.mocked(fetchTeamWorkflowStates).mockResolvedValue([
+      { id: "s1", name: "Todo", type: "unstarted", position: 1, color: "#888888" },
+      { id: "s2", name: "In Progress", type: "started", position: 2, color: "#f2c94c" },
+    ]);
+    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => fetchRows("p1"));
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Status" }));
+
+    expect(screen.getByRole("button", { name: "In Progress" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "started" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "unstarted" })).toBeNull();
+  });
+
+  it("tells two states with the same name apart by their team key", async () => {
+    vi.mocked(fetchProjects).mockResolvedValue([
+      {
+        id: "p1",
+        name: "P",
+        teams: { nodes: [{ id: "t1", name: "Siig", key: "SII" }, { id: "t2", name: "Web", key: "WEB" }] },
+        hasIssues: true,
+      },
+    ]);
+    vi.mocked(fetchProjectTeamIds).mockResolvedValue(["t1", "t2"]);
+    vi.mocked(fetchTeamWorkflowStates).mockImplementation(async (teamId) => (
+      teamId === "t1"
+        ? [{ id: "s1", name: "Todo", type: "unstarted", position: 1, color: "#888888" }]
+        : [{ id: "s2", name: "Todo", type: "unstarted", position: 1, color: "#888888" }]
+    ));
+    vi.mocked(fetchScopedById).mockImplementation(async (_ids, fetchRows) => fetchRows("p1"));
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Status" }));
+
+    expect(screen.getByRole("button", { name: "Todo · SII" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Todo · WEB" })).toBeTruthy();
   });
 });

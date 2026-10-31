@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyPlannerQuery } from "../../plannerQuery";
-import { FilterMenu } from "./FilterMenu";
+import { FilterMenu, type StatusOption } from "./FilterMenu";
 import { ViewMenu } from "./ViewMenu";
 
 afterEach(() => {
@@ -105,5 +105,48 @@ describe("header controls at 390px", () => {
     const popover = view.container.querySelector("input")?.parentElement;
     expect(popover?.style.maxWidth).toBe("calc(100vw - 24px)");
     expect(view.container.scrollWidth).toBeLessThanOrEqual(view.container.clientWidth || 390);
+  });
+});
+
+describe("the status filter", () => {
+  const statuses: StatusOption[] = [
+    { id: "state-todo", label: "Todo", type: "unstarted" },
+    { id: "state-progress", label: "In Progress", type: "started" },
+  ];
+
+  function openStatus(query = emptyPlannerQuery(), onChange = () => {}) {
+    render(
+      <FilterMenu
+        query={query}
+        projects={[]}
+        statuses={statuses}
+        assignees={[]}
+        labels={[]}
+        milestones={[]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Status" }));
+  }
+
+  it("offers the concrete state names and not the internal state types", () => {
+    openStatus();
+    expect(screen.getByRole("button", { name: "In Progress" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "started" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "unstarted" })).toBeNull();
+  });
+
+  it("selects a state by its id", () => {
+    const onChange = vi.fn();
+    openStatus(emptyPlannerQuery(), onChange);
+    fireEvent.click(screen.getByRole("button", { name: "In Progress" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ stateIds: ["state-progress"] }));
+  });
+
+  it("marks a selected state as pressed", () => {
+    openStatus({ ...emptyPlannerQuery(), stateIds: ["state-todo"] });
+    expect(screen.getByRole("button", { name: "Todo" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "In Progress" }).getAttribute("aria-pressed")).toBe("false");
   });
 });

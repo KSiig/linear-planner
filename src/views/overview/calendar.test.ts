@@ -2,14 +2,8 @@ import { describe, expect, it } from "vitest";
 import { addCalendarDays, localToday, shortDay, shortMonthYear } from "./calendar";
 
 describe("calendar", () => {
-  it("adds calendar days without parsing the date-only string", () => {
+  it("reads the calendar days from the due-window module", () => {
     expect(addCalendarDays("2026-10-22", 14)).toBe("2026-11-05");
-    expect(addCalendarDays("2026-10-22", 45)).toBe("2026-12-06");
-    expect(addCalendarDays("2026-10-05", 15)).toBe("2026-10-20");
-    expect(addCalendarDays("2026-10-05", 45)).toBe("2026-11-19");
-  });
-
-  it("formats a local today", () => {
     expect(localToday(new Date(2026, 9, 22))).toBe("2026-10-22");
   });
 

@@ -30,6 +30,7 @@ describe("FilterChips", () => {
         mode="overview"
         activeView={null}
         projects={[{ id: "p1", label: "Huskøb/Flytning" }, { id: "p2", label: "Other" }]}
+        statuses={[]}
         assignees={[]}
         milestones={[]}
         onChange={onChange}
@@ -53,6 +54,7 @@ describe("FilterChips", () => {
             mode={mode}
             activeView={active}
             projects={[]}
+            statuses={[]}
             assignees={[]}
             milestones={[]}
             onChange={() => {}}
@@ -70,7 +72,7 @@ describe("FilterChips", () => {
   it("cancels the name field without creating a view", () => {
     const query: PlannerQuery = { ...emptyPlannerQuery(), projectIds: ["p1"] };
     render(
-      <FilterChips query={query} mode="overview" activeView={null} projects={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={() => {}} />,
+      <FilterChips query={query} mode="overview" activeView={null} projects={[]} statuses={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={() => {}} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Save view" }));
     expect(screen.getByLabelText("View name")).toBeTruthy();
@@ -85,7 +87,7 @@ describe("FilterChips", () => {
     vi.mocked(createSavedView).mockResolvedValue(created);
     const onCreated = vi.fn();
     render(
-      <FilterChips query={query} mode="overview" activeView={null} projects={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={onCreated} />,
+      <FilterChips query={query} mode="overview" activeView={null} projects={[]} statuses={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={onCreated} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Save view" }));
     fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Huskøb" } });
@@ -97,7 +99,7 @@ describe("FilterChips", () => {
   it("disables Save while the trimmed name is empty", () => {
     const query: PlannerQuery = { ...emptyPlannerQuery(), projectIds: ["p1"] };
     render(
-      <FilterChips query={query} mode="overview" activeView={null} projects={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={() => {}} />,
+      <FilterChips query={query} mode="overview" activeView={null} projects={[]} statuses={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={() => {}} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Save view" }));
     expect(screen.getByRole("button", { name: "Save view" }).hasAttribute("disabled")).toBe(true);
@@ -108,12 +110,52 @@ describe("FilterChips", () => {
   it("does not create a view when Escape closes the name field", () => {
     const query: PlannerQuery = { ...emptyPlannerQuery(), projectIds: ["p1"] };
     render(
-      <FilterChips query={query} mode="overview" activeView={null} projects={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={() => {}} />,
+      <FilterChips query={query} mode="overview" activeView={null} projects={[]} statuses={[]} assignees={[]} milestones={[]} onChange={() => {}} onCreated={() => {}} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Save view" }));
     fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Huskøb" } });
     fireEvent.keyDown(screen.getByLabelText("View name"), { key: "Escape" });
     expect(screen.queryByLabelText("View name")).toBeNull();
     expect(createSavedView).not.toHaveBeenCalled();
+  });
+});
+
+describe("the status and due chips", () => {
+  const statuses = [{ id: "state-progress", label: "In Progress", type: "started" }];
+
+  function renderChips(query: PlannerQuery, onChange = vi.fn()) {
+    render(
+      <FilterChips
+        query={query}
+        mode="overview"
+        activeView={null}
+        projects={[]}
+        statuses={statuses}
+        assignees={[]}
+        milestones={[]}
+        onChange={onChange}
+        onCreated={() => {}}
+      />,
+    );
+    return onChange;
+  }
+
+  it("names a status chip after the workflow state and drops its id", () => {
+    const query: PlannerQuery = { ...emptyPlannerQuery(), stateIds: ["state-progress"] };
+    const onChange = renderChips(query);
+    fireEvent.click(screen.getByRole("button", { name: "Status In Progress" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ stateIds: [] }));
+  });
+
+  it("names a legacy status chip after the workflow state too", () => {
+    const query: PlannerQuery = { ...emptyPlannerQuery(), stateTypes: ["started"] };
+    renderChips(query);
+    expect(screen.getByRole("button", { name: "Status In Progress" })).toBeTruthy();
+  });
+
+  it("names a due chip after the due window", () => {
+    const query: PlannerQuery = { ...emptyPlannerQuery(), dueWindow: "soon" };
+    renderChips(query);
+    expect(screen.getByRole("button", { name: "Due Soon" })).toBeTruthy();
   });
 });

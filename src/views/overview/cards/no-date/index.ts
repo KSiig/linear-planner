@@ -1,4 +1,5 @@
 import { defineCard, type CardRow, type CardSection, type OverviewIssue } from "../shell/contract";
+import { matchesDueWindow } from "../../../../dueWindows";
 import "./index.css";
 
 const PRIORITY_RANK: Record<number, number> = {
@@ -39,7 +40,7 @@ export const noDateCard = defineCard({
     scroll: "body",
   },
   async load(ctx) {
-    const undated = ctx.issues.filter((issue) => isOpen(issue) && issue.dueDate === null);
+    const undated = ctx.issues.filter((issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "none", ctx.today));
     const lead = undated.filter((issue) => issue.state.type !== "backlog").sort(compareIssues);
     const ideas = undated.filter((issue) => issue.state.type === "backlog").sort(compareIssues);
     const sections: CardSection[] = [];

@@ -1,9 +1,24 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { DueWindow, PlannerQuery } from "../../plannerQuery";
+import { DUE_WINDOW_OPTIONS, type DueWindow } from "../../dueWindows";
+import type { PlannerQuery } from "../../plannerQuery";
 
 export interface FilterOption {
   id: string;
   label: string;
+}
+
+/** A workflow state the Status filter offers. */
+export interface StatusOption extends FilterOption {
+  /** Linear's internal state type. The legacy filter still uses it. */
+  type: string;
+}
+
+/** A workflow state and the team that owns it. */
+export interface StatusState {
+  id: string;
+  name: string;
+  type: string;
+  teamKey: string;
 }
 
 const PRIORITIES: FilterOption[] = [
@@ -16,11 +31,7 @@ const PRIORITIES: FilterOption[] = [
 
 const DUE_OPTIONS: Array<{ id: DueWindow | "any"; label: string }> = [
   { id: "any", label: "Any" },
-  { id: "overdue", label: "Overdue" },
-  { id: "next", label: "Next" },
-  { id: "soon", label: "Soon" },
-  { id: "later", label: "Later" },
-  { id: "none", label: "No date" },
+  ...DUE_WINDOW_OPTIONS.map((option) => ({ id: option.id, label: option.label })),
 ];
 
 type Dimension = "project" | "status" | "assignee" | "priority" | "label" | "milestone" | "due";
@@ -95,7 +106,7 @@ export function FilterMenu({
 }: {
   query: PlannerQuery;
   projects: FilterOption[];
-  statuses: string[];
+  statuses: StatusOption[];
   assignees: FilterOption[];
   labels: string[];
   milestones: FilterOption[];
@@ -236,7 +247,7 @@ function Chevron({ direction }: { direction: "left" | "right" }) {
 
 function selectedIds(dimension: Dimension, query: PlannerQuery): string[] {
   if (dimension === "project") return query.projectIds;
-  if (dimension === "status") return query.stateTypes;
+  if (dimension === "status") return query.stateIds ?? [];
   if (dimension === "assignee") return query.assigneeIds;
   if (dimension === "priority") return query.priorities.map(String);
   if (dimension === "label") return query.labelNames;
@@ -248,7 +259,7 @@ function valueSummary(
   dimension: Dimension,
   query: PlannerQuery,
   projects: FilterOption[],
-  statuses: string[],
+  statuses: StatusOption[],
   assignees: FilterOption[],
   labels: string[],
   milestones: FilterOption[],
@@ -267,13 +278,13 @@ function valueSummary(
 function optionsFor(
   dimension: Dimension | null,
   projects: FilterOption[],
-  statuses: string[],
+  statuses: StatusOption[],
   assignees: FilterOption[],
   labels: string[],
   milestones: FilterOption[],
 ): FilterOption[] {
   if (dimension === "project") return projects;
-  if (dimension === "status") return statuses.map((status) => ({ id: status, label: status }));
+  if (dimension === "status") return statuses;
   if (dimension === "assignee") return [{ id: "unassigned", label: "Unassigned" }, ...assignees];
   if (dimension === "priority") return PRIORITIES;
   if (dimension === "label") return labels.map((label) => ({ id: label, label }));
@@ -284,7 +295,7 @@ function optionsFor(
 
 function isSelected(dimension: Dimension, id: string, query: PlannerQuery): boolean {
   if (dimension === "project") return query.projectIds.includes(id);
-  if (dimension === "status") return query.stateTypes.includes(id);
+  if (dimension === "status") return (query.stateIds ?? []).includes(id);
   if (dimension === "assignee") return query.assigneeIds.includes(id);
   if (dimension === "priority") return query.priorities.includes(Number(id));
   if (dimension === "label") return query.labelNames.includes(id);
@@ -295,7 +306,7 @@ function isSelected(dimension: Dimension, id: string, query: PlannerQuery): bool
 
 function selectOption(dimension: Dimension, id: string, query: PlannerQuery): PlannerQuery {
   if (dimension === "project") return { ...query, projectIds: toggleValue(query.projectIds, id) };
-  if (dimension === "status") return { ...query, stateTypes: toggleValue(query.stateTypes, id) };
+  if (dimension === "status") return { ...query, stateIds: toggleValue(query.stateIds ?? [], id) };
   if (dimension === "assignee") return { ...query, assigneeIds: toggleValue(query.assigneeIds, id) };
   if (dimension === "priority") return { ...query, priorities: toggleValue(query.priorities, Number(id)) };
   if (dimension === "label") return { ...query, labelNames: toggleValue(query.labelNames, id) };

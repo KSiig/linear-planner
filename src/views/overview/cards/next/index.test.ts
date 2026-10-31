@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { OverviewIssue } from "../shell/contract";
 import { nextCard } from "./index";
 import { overviewCardOrder, overviewCards } from "../../registry";
+import { emptyPlannerQuery, matchesQuery } from "../../../../plannerQuery";
 
 const TODAY = "2026-10-22";
 
@@ -84,6 +85,20 @@ describe("next card", () => {
       issues: [issue({ id: "none", identifier: "SII-0", dueDate: null })],
     });
     expect(model).toBeNull();
+  });
+
+  it("puts the same issues in the window as the planner query", async () => {
+    const issues = [
+      issue({ id: "day-14", identifier: "SII-14", dueDate: "2026-11-05" }),
+      issue({ id: "day-15", identifier: "SII-15", dueDate: "2026-11-06" }),
+    ];
+    const model = await nextCard.load({ today: TODAY, issues });
+    const query = { ...emptyPlannerQuery(), dueWindow: "next" as const };
+    const matched = issues
+      .filter((candidate) => matchesQuery({ project: { id: "project-1" }, dueDate: candidate.dueDate }, query, TODAY))
+      .map((candidate) => candidate.identifier);
+    expect(model?.sections[0].rows.map((row) => row.identifier)).toEqual(matched);
+    expect(matched).toEqual(["SII-14"]);
   });
 
   it("sorts after overdue and before soon when those modules are present", () => {

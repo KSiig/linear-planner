@@ -4,6 +4,9 @@ import { CardShell } from "./cards/shell";
 import type { CardContext, CardModel, CardModule, OverviewIssue } from "./cards/shell/contract";
 import { overviewCards } from "./registry";
 
+/** How often the Overview checks whether the local day has turned over. */
+const DAY_CHECK_MS = 60 * 1000;
+
 function OverviewCard({ card, ctx }: { card: CardModule; ctx: CardContext }) {
   const [model, setModel] = useState<CardModel | null>(null);
 
@@ -22,7 +25,20 @@ function OverviewCard({ card, ctx }: { card: CardModule; ctx: CardContext }) {
 }
 
 export function Overview({ issues }: { issues: OverviewIssue[] }) {
-  const ctx = useMemo(() => ({ today: localToday(new Date()), issues }), [issues]);
+  const [today, setToday] = useState(() => localToday(new Date()));
+
+  // The due windows count from the local day, so the Overview follows the
+  // clock: after midnight the cards group the issues by the new day.
+  useEffect(() => {
+    const check = () => {
+      const day = localToday(new Date());
+      setToday((current) => (current === day ? current : day));
+    };
+    const timer = setInterval(check, DAY_CHECK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const ctx = useMemo(() => ({ today, issues }), [today, issues]);
 
   return (
     <div
