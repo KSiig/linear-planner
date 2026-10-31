@@ -196,6 +196,17 @@ describe("display tabs", () => {
   });
 });
 
+describe("the visible product title", () => {
+  it("names the product Linear dashboard", async () => {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    const title = await screen.findByRole("heading", { name: "Linear dashboard" });
+    expect(title.textContent).toBe("Linear dashboard");
+    expect(screen.queryByText("Linear planner")).toBeNull();
+  });
+});
+
 describe("the shared issue quick-look", () => {
   it("opens the quick-look when an issue of the timeline is clicked", async () => {
     window.history.pushState(null, "", "/p1/");
