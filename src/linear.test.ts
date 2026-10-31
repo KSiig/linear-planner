@@ -5,7 +5,10 @@ import {
   removeRelation,
   fetchProjectIssues,
   fetchTeamWorkflowStates,
+  fetchTeamMembers,
+  fetchIssue,
   issueUpdate,
+  issueUpdateFields,
   classifyLinearError,
   LinearApiError,
 } from "./linear";
@@ -430,6 +433,233 @@ describe("issueUpdate", () => {
 
     expect(error).toBeInstanceOf(LinearApiError);
     expect((error as LinearApiError).kind).toBe("graphql");
+  });
+});
+
+describe("issueUpdateFields", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function requestBody(callIndex: number) {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex][1].body));
+  }
+
+  function okResponse(data: unknown) {
+    return { ok: true, status: 200, json: async () => ({ data }) };
+  }
+
+  it("sends the changed fields as one input object", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await issueUpdateFields("issue-1", { priority: 2 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = requestBody(0);
+    expect(body.variables).toEqual({ id: "issue-1", input: { priority: 2 } });
+    expect(body.query).toMatch(/issueUpdate\(id:\s*\$id/);
+    expect(body.query).toMatch(/input:\s*\$input/);
+  });
+
+  it("sends the assignee and the due date", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await issueUpdateFields("issue-1", { assigneeId: "user-2", dueDate: "2026-12-24" });
+
+    expect(requestBody(0).variables).toEqual({
+      id: "issue-1",
+      input: { assigneeId: "user-2", dueDate: "2026-12-24" },
+    });
+  });
+
+  it("clears the assignee and the due date with null", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await issueUpdateFields("issue-1", { assigneeId: null, dueDate: null });
+
+    expect(requestBody(0).variables).toEqual({
+      id: "issue-1",
+      input: { assigneeId: null, dueDate: null },
+    });
+  });
+
+  it("mentions only the fields the change touches", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await issueUpdateFields("issue-1", { priority: 1 });
+
+    expect(Object.keys(requestBody(0).variables.input)).toEqual(["priority"]);
+  });
+
+  it("resolves when Linear confirms the change", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: true } }));
+
+    await expect(issueUpdateFields("issue-1", { priority: 1 })).resolves.toBeUndefined();
+  });
+
+  it("throws when Linear reports success as false", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: false } }));
+
+    await expect(issueUpdateFields("issue-1", { priority: 1 })).rejects.toThrow(
+      /did not update issue issue-1/,
+    );
+  });
+
+  it("throws when the response carries no result", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+
+    await expect(issueUpdateFields("issue-1", { priority: 1 })).rejects.toThrow(/no update result/);
+  });
+
+  it("reports a rejected change as a classified API error", async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ issueUpdate: { success: false } }));
+
+    const error = await issueUpdateFields("issue-1", { priority: 1 }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(LinearApiError);
+    expect((error as LinearApiError).kind).toBe("graphql");
+  });
+});
+
+describe("fetchTeamMembers", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function requestBody(callIndex: number) {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex][1].body));
+  }
+
+  it("asks the team for its members", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          team: {
+            members: {
+              nodes: [
+                { id: "user-1", name: "Kasper", displayName: "Kasper", avatarUrl: null, active: true },
+                { id: "user-2", name: "Robin", displayName: "Robin", avatarUrl: "https://avatar", active: false },
+              ],
+            },
+          },
+        },
+      }),
+    });
+
+    const members = await fetchTeamMembers("team-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = requestBody(0);
+    expect(body.variables).toEqual({ teamId: "team-1" });
+    expect(body.query).toMatch(/team\(id:\s*\$teamId\)/);
+    expect(body.query).toMatch(/members\s*\(first:\s*50\)/);
+
+    expect(members.map((member) => member.id)).toEqual(["user-1", "user-2"]);
+    expect(members[1]).toEqual({
+      id: "user-2",
+      name: "Robin",
+      displayName: "Robin",
+      avatarUrl: "https://avatar",
+      active: false,
+    });
+  });
+
+  it("fails when the team does not exist", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { team: null } }),
+    });
+
+    await expect(fetchTeamMembers("team-1")).rejects.toThrow(/Team not found/);
+  });
+});
+
+describe("fetchIssue", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function requestBody(callIndex: number) {
+    return JSON.parse(String(fetchMock.mock.calls[callIndex][1].body));
+  }
+
+  it("reads one issue again", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          issue: {
+            id: "issue-1",
+            identifier: "SII-182",
+            title: "Add the quick actions",
+            url: "https://linear.app/siig/issue/SII-182",
+            priority: 0,
+            priorityLabel: "No priority",
+            sortOrder: 1,
+            startedAt: null,
+            completedAt: "2026-10-30T09:00:00.000Z",
+            dueDate: null,
+            description: null,
+            updatedAt: "2026-10-30T09:00:00.000Z",
+            createdAt: "2026-10-01T08:00:00.000Z",
+            assignee: null,
+            state: { id: "state-done", name: "Done", type: "completed", color: "#5e6ad2", position: 2 },
+            team: { id: "team-1" },
+            projectMilestone: null,
+            project: null,
+            labels: { nodes: [] },
+            relations: { nodes: [] },
+            inverseRelations: { nodes: [] },
+          },
+        },
+      }),
+    });
+
+    const issue = await fetchIssue("issue-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = requestBody(0);
+    expect(body.variables).toEqual({ id: "issue-1" });
+    expect(body.query).toMatch(/issue\(id:\s*\$id\)/);
+
+    expect(issue?.id).toBe("issue-1");
+    expect(issue?.completedAt).toBe("2026-10-30T09:00:00.000Z");
+    expect(issue?.updatedAt).toBe("2026-10-30T09:00:00.000Z");
+  });
+
+  it("returns null when the issue is gone", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { issue: null } }),
+    });
+
+    await expect(fetchIssue("issue-1")).resolves.toBeNull();
   });
 });
 
