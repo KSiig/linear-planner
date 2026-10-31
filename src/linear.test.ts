@@ -13,6 +13,7 @@ import {
   LinearApiError,
 } from "./linear";
 import type { LinearIssue } from "./linear";
+import * as linearModule from "./linear";
 
 // The Linear API client reads the access token through `./auth`; stub it so the
 // fetch mock below is the only thing the request depends on. The rest of the
@@ -682,5 +683,12 @@ describe("classifyLinearError", () => {
 
   it("treats an ordinary GraphQL error as a GraphQL error", () => {
     expect(classifyLinearError(new Error("Entity not found"))).toBe("graphql");
+  });
+});
+
+describe("the removed planner helpers", () => {
+  it("no longer exports fetchTeamIssues or OverviewCardIssue", () => {
+    expect(Object.keys(linearModule)).not.toContain("fetchTeamIssues");
+    expect(Object.keys(linearModule)).not.toContain("OverviewCardIssue");
   });
 });

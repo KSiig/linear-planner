@@ -2,6 +2,9 @@ name = "linear-planner"
 compatibility_date = "2026-10-05"
 pages_build_output_dir = "dist"
 
+[vars]
+VIEWS_WORKSPACE_URL_KEY = "siig"
+
 [[d1_databases]]
 binding = "VIEWS_DB"
 database_name = "linear-planner-views"

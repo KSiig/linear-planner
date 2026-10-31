@@ -11,6 +11,7 @@ import {
   saveActiveViewId,
   saveDisplaySettings,
   savePlannerQuery,
+  updateSavedView,
 } from "./savedViews";
 
 beforeEach(() => {
@@ -39,6 +40,27 @@ describe("planner query draft", () => {
     expect(loadActiveViewId()).toBe("view-1");
     saveActiveViewId(null);
     expect(loadActiveViewId()).toBeNull();
+  });
+
+  it("loads a stored legacy query with the state ids filled in and the legacy state types kept", () => {
+    localStorage.setItem("linear-planner:query", JSON.stringify({
+      projectIds: ["p1"],
+      stateTypes: ["started"],
+      assigneeIds: [],
+      priorities: [],
+      labelNames: [],
+      milestoneIds: [],
+      dueWindow: null,
+    }));
+    const query = loadPlannerQuery();
+    expect(query.stateIds).toEqual([]);
+    expect(query.stateTypes).toEqual(["started"]);
+  });
+
+  it("writes the draft query with the workflow state ids", () => {
+    savePlannerQuery({ ...emptyPlannerQuery(), stateIds: ["state-1"] });
+    const stored = JSON.parse(localStorage.getItem("linear-planner:query") ?? "{}");
+    expect(stored.stateIds).toEqual(["state-1"]);
   });
 });
 
@@ -82,6 +104,47 @@ describe("createSavedView", () => {
     expect(body).not.toContain("customViewUpdate");
     expect(body).not.toContain("customViewDelete");
     expect(calls[0]?.url).not.toContain("api.linear.app");
+  });
+
+  it("sends the workflow state ids with a new saved view", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({ id: "v1", name: "Mine", query: emptyPlannerQuery(), mode: "dates" }),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    await createSavedView(fetchImpl, "access-token", {
+      name: "Mine",
+      query: { ...emptyPlannerQuery(), stateIds: ["state-1"] },
+      mode: "dates",
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body));
+    expect(body.query.stateIds).toEqual(["state-1"]);
+    expect(body.mode).toBe("dates");
+  });
+});
+
+describe("updateSavedView", () => {
+  it("sends the workflow state ids with an updated saved view", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({ id: "v1", name: "Mine", query: emptyPlannerQuery(), mode: "dates" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    await updateSavedView(fetchImpl, "access-token", "v1", {
+      query: { ...emptyPlannerQuery(), stateIds: ["state-1"] },
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body));
+    expect(body.query.stateIds).toEqual(["state-1"]);
   });
 });
 
