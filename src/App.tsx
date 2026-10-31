@@ -731,7 +731,7 @@ export default function App() {
         {!(narrow && connected) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src={`${BASE_PATH}/icon.png`} alt="" width={24} height={24} style={{ display: "block" }} />
-          <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Linear planner</h1>
+          <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Linear dashboard</h1>
           {connected && (
             <div style={{ position: "relative", marginLeft: "auto" }}>
               <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
