@@ -7,6 +7,7 @@ import {
   scopeProjectIds,
   type QueryIssue,
 } from "./plannerQuery";
+import { getDueWindowConfig, loadDueWindowConfig, saveDueWindowConfig } from "./dueWindows";
 
 const TODAY = "2026-10-23";
 const HUSKOB = "huskob";
@@ -103,6 +104,46 @@ describe("the due windows", () => {
     expect(matchesQuery(issue({ dueDate: "2026-10-23" }), next, TODAY)).toBe(true);
     expect(matchesQuery(issue({ dueDate: "2026-11-06" }), next, TODAY)).toBe(true);
     expect(matchesQuery(issue({ dueDate: "2026-11-07" }), next, TODAY)).toBe(false);
+  });
+
+  it("keeps the window name in the query, not the days it covers", () => {
+    const query = { ...emptyPlannerQuery(), projectIds: [AD_HOC], dueWindow: "soon" as const };
+    expect(query.dueWindow).toBe("soon");
+    expect(Object.keys(query)).toContain("dueWindow");
+    expect(normalizePlannerQuery(query).dueWindow).toBe("soon");
+  });
+});
+
+describe("the due windows with configured boundaries", () => {
+  const config = { nextEndDays: 30, soonEndDays: 60 };
+
+  it("counts Next through the configured Next boundary", () => {
+    const next = { ...emptyPlannerQuery(), projectIds: [AD_HOC], dueWindow: "next" as const };
+    expect(matchesQuery(issue({ dueDate: "2026-11-22" }), next, TODAY, config)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-11-23" }), next, TODAY, config)).toBe(false);
+  });
+
+  it("counts Soon from the day after Next through the configured Soon boundary", () => {
+    const soon = { ...emptyPlannerQuery(), projectIds: [AD_HOC], dueWindow: "soon" as const };
+    expect(matchesQuery(issue({ dueDate: "2026-11-22" }), soon, TODAY, config)).toBe(false);
+    expect(matchesQuery(issue({ dueDate: "2026-11-23" }), soon, TODAY, config)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-12-22" }), soon, TODAY, config)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-12-23" }), soon, TODAY, config)).toBe(false);
+  });
+
+  it("counts Later from the day after the configured Soon boundary", () => {
+    const later = { ...emptyPlannerQuery(), projectIds: [AD_HOC], dueWindow: "later" as const };
+    expect(matchesQuery(issue({ dueDate: "2026-12-23" }), later, TODAY, config)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-12-22" }), later, TODAY, config)).toBe(false);
+  });
+
+  it("uses the boundaries in effect when no configuration is given", () => {
+    const next = { ...emptyPlannerQuery(), projectIds: [AD_HOC], dueWindow: "next" as const };
+    saveDueWindowConfig(config);
+    expect(getDueWindowConfig()).toEqual(config);
+    expect(matchesQuery(issue({ dueDate: "2026-11-22" }), next, TODAY)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-11-23" }), next, TODAY)).toBe(false);
+    loadDueWindowConfig();
   });
 });
 

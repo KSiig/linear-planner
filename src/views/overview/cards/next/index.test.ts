@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { OverviewIssue } from "../shell/contract";
 import { nextCard } from "./index";
 import { overviewCardOrder, overviewCards } from "../../registry";
 import { emptyPlannerQuery, matchesQuery } from "../../../../plannerQuery";
+import { loadDueWindowConfig, saveDueWindowConfig } from "../../../../dueWindows";
 
 const TODAY = "2026-10-22";
 
@@ -110,5 +111,26 @@ describe("next card", () => {
       ...overviewCards.filter((card) => card.id === "next"),
     ].sort((left, right) => order.indexOf(left.id) - order.indexOf(right.id));
     expect(present.map((card) => card.id)).toEqual(["overdue", "next", "soon"]);
+  });
+});
+
+describe("the next card with configured boundaries", () => {
+  afterEach(() => {
+    // Read the boundaries back, so the card uses the standard ones again.
+    loadDueWindowConfig();
+  });
+
+  it("counts the configured Next boundary and shows it in the subtitle", async () => {
+    saveDueWindowConfig({ nextEndDays: 30, soonEndDays: 60 });
+    const model = await nextCard.load({
+      today: TODAY,
+      issues: [
+        issue({ id: "end", identifier: "SII-30", dueDate: "2026-11-21" }),
+        issue({ id: "past", identifier: "SII-31", dueDate: "2026-11-22" }),
+      ],
+    });
+
+    expect(model?.sections[0].rows.map((row) => row.identifier)).toEqual(["SII-30"]);
+    expect(model?.subtitle).toBe("through 21 Nov");
   });
 });
