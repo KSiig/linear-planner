@@ -16,6 +16,7 @@ import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToL
 import type { PlannerQuery } from "./plannerQuery";
 import { normalizePlannerQuery } from "./plannerQuery";
 import {
+  getDueWindowConfig,
   loadDueWindowConfig,
   parseDueWindowDraft,
   saveDueWindowConfig,
@@ -208,12 +209,13 @@ export default function App() {
   const [autoRefresh, setAutoRefreshState] = useState(isAutoRefreshEnabled());
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The due-window boundaries. They are browser-global: one browser uses the
-  // same boundaries for every project.
+  // same boundaries for every project. Reading them primes the shared module,
+  // so every surface reads the same boundaries.
   const [dueWindowConfig, setDueWindowConfig] = useState<DueWindowConfig>(() => loadDueWindowConfig());
   // What the settings fields hold while they are being edited. The value in
   // effect is the one the surfaces use.
   const [dueWindowDraft, setDueWindowDraft] = useState(() => {
-    const config = loadDueWindowConfig();
+    const config = getDueWindowConfig();
     return { nextEndDays: String(config.nextEndDays), soonEndDays: String(config.soonEndDays) };
   });
   const [dueWindowError, setDueWindowError] = useState<string | null>(null);
@@ -738,14 +740,13 @@ export default function App() {
       setDueWindowError(result.error.reason);
       // A value that can never be used goes back to the value in effect. A
       // value that only conflicts with the other field stays in the field, so
-      // it can be finished.
+      // it can be finished and the other field can be raised to meet it.
       setDueWindowDraft(result.error.revert
         ? { ...draft, [field]: String(dueWindowConfig[field]) }
         : draft);
       return;
     }
     setDueWindowError(null);
-    setDueWindowDraft(draft);
     applyDueWindowConfig(result.config);
   }, [applyDueWindowConfig, dueWindowConfig, dueWindowDraft]);
 
