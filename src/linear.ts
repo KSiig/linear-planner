@@ -19,17 +19,28 @@ export interface LinearIssue {
   description: string | null;
   /** Timestamp of the issue's last update, kept exactly as the API returned it. */
   updatedAt: string;
+  /** Timestamp of the issue's creation, kept exactly as the API returned it. */
+  createdAt: string;
   state: { id: string; name: string; type: string; color: string; position: number };
   /** The team that owns the issue. A project can span teams, so this is authoritative. */
   team: { id: string };
   assignee: { id: string; name: string; avatarUrl: string | null } | null;
   projectMilestone: { id: string; name: string; sortOrder: number } | null;
+  /** The project that owns the issue, or null when it has none. */
+  project: { id: string; name: string } | null;
   labels: { nodes: Array<{ name: string; color: string }> };
   relations: {
     nodes: Array<{
       id: string;
       type: string;
-      relatedIssue: { id: string; identifier: string };
+      relatedIssue: { id: string; identifier: string; title: string; state: { type: string } };
+    }>;
+  };
+  inverseRelations: {
+    nodes: Array<{
+      id: string;
+      type: string;
+      relatedIssue: { id: string; identifier: string; title: string; state: { type: string } };
     }>;
   };
 }
@@ -447,16 +458,25 @@ export async function fetchProjectIssues(projectId: string): Promise<LinearIssue
               dueDate
               description
               updatedAt
+              createdAt
               assignee { id name avatarUrl }
               state { id name type color position }
               team { id }
               projectMilestone { id name sortOrder }
+              project { id name }
               labels { nodes { name color } }
               relations {
                 nodes {
                   id
                   type
-                  relatedIssue { id identifier }
+                  relatedIssue { id identifier title state { type } }
+                }
+              }
+              inverseRelations {
+                nodes {
+                  id
+                  type
+                  relatedIssue { id identifier title state { type } }
                 }
               }
             }
@@ -501,7 +521,10 @@ export function addBlocksRelation(
   blockedId: string,
   relationId: string,
 ): LinearIssue[] {
-  const identifier = issues.find((i) => i.id === blockedId)?.identifier ?? "";
+  const blockedIssue = issues.find((i) => i.id === blockedId);
+  const identifier = blockedIssue?.identifier ?? "";
+  const title = blockedIssue?.title ?? "";
+  const relatedStateType = blockedIssue?.state.type ?? "unknown";
   return issues.map((issue) => {
     if (issue.id !== blockerId) return issue;
     if (issue.relations.nodes.some((r) => r.type === "blocks" && r.relatedIssue.id === blockedId)) return issue;
@@ -509,7 +532,7 @@ export function addBlocksRelation(
       ...issue,
       relations: {
         ...issue.relations,
-        nodes: [...issue.relations.nodes, { id: relationId, type: "blocks", relatedIssue: { id: blockedId, identifier } }],
+        nodes: [...issue.relations.nodes, { id: relationId, type: "blocks", relatedIssue: { id: blockedId, identifier, title, state: { type: relatedStateType } } }],
       },
     };
   });

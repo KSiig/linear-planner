@@ -67,12 +67,15 @@ function makeIssue(overrides: Partial<LinearIssue> & { id: string; identifier: s
     dueDate: null,
     description: null,
     updatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: "2025-12-01T00:00:00.000Z",
     state: { id: "state-todo", name: "To do", type: "unstarted", color: "#ccc", position: 1 },
     team: { id: "team-1" },
     assignee: null,
     projectMilestone: null,
+    project: null,
     labels: { nodes: [] },
     relations: { nodes: [] },
+    inverseRelations: { nodes: [] },
     ...overrides,
   };
 }
@@ -83,7 +86,7 @@ describe("addBlocksRelation", () => {
     const next = addBlocksRelation(issues, "a", "b", "rel-1");
     const blocker = next.find((i) => i.id === "a")!;
     expect(blocker.relations.nodes).toEqual([
-      { id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2" } },
+      { id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2", title: "A-2", state: { type: "unstarted" } } },
     ]);
     // The blocked issue is untouched (the relation lives on the blocker).
     expect(next.find((i) => i.id === "b")!.relations.nodes).toEqual([]);
@@ -100,7 +103,7 @@ describe("addBlocksRelation", () => {
 
   it("is a no-op when the same blocks relation already exists", () => {
     const issues = [
-      makeIssue({ id: "a", identifier: "A-1", relations: { nodes: [{ id: "rel-old", type: "blocks", relatedIssue: { id: "b", identifier: "A-2" } }] } }),
+      makeIssue({ id: "a", identifier: "A-1", relations: { nodes: [{ id: "rel-old", type: "blocks", relatedIssue: { id: "b", identifier: "A-2", title: "A-2", state: { type: "unstarted" } } }] } }),
       makeIssue({ id: "b", identifier: "A-2" }),
     ];
     const next = addBlocksRelation(issues, "a", "b", "rel-new");
@@ -111,14 +114,14 @@ describe("addBlocksRelation", () => {
   it("falls back to an empty identifier when the blocked issue is absent", () => {
     const issues = [makeIssue({ id: "a", identifier: "A-1" })];
     const next = addBlocksRelation(issues, "a", "missing", "rel-1");
-    expect(next.find((i) => i.id === "a")!.relations.nodes[0].relatedIssue).toEqual({ id: "missing", identifier: "" });
+    expect(next.find((i) => i.id === "a")!.relations.nodes[0].relatedIssue).toEqual({ id: "missing", identifier: "", title: "", state: { type: "unknown" } });
   });
 });
 
 describe("removeRelation", () => {
   it("drops the relation node with the matching id", () => {
     const issues = [
-      makeIssue({ id: "a", identifier: "A-1", relations: { nodes: [{ id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2" } }] } }),
+      makeIssue({ id: "a", identifier: "A-1", relations: { nodes: [{ id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2", title: "A-2", state: { type: "unstarted" } } }] } }),
       makeIssue({ id: "b", identifier: "A-2" }),
     ];
     const next = removeRelation(issues, "rel-1");
@@ -127,7 +130,7 @@ describe("removeRelation", () => {
 
   it("only copies issues that held the relation, leaving others by identity", () => {
     const issues = [
-      makeIssue({ id: "a", identifier: "A-1", relations: { nodes: [{ id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2" } }] } }),
+      makeIssue({ id: "a", identifier: "A-1", relations: { nodes: [{ id: "rel-1", type: "blocks", relatedIssue: { id: "b", identifier: "A-2", title: "A-2", state: { type: "unstarted" } } }] } }),
       makeIssue({ id: "b", identifier: "A-2" }),
     ];
     const next = removeRelation(issues, "rel-1");
@@ -169,12 +172,15 @@ describe("fetchProjectIssues", () => {
       dueDate: null,
       description: "Issue body",
       updatedAt: "2026-10-29T12:34:56.789Z",
+      createdAt: "2026-10-01T09:00:00.000Z",
       assignee: null,
       state: { id: "state-todo", name: "Todo", type: "unstarted", color: "#ccc", position: 1 },
       team: { id: "team-1" },
       projectMilestone: null,
+      project: { id: "project-1", name: "M3" },
       labels: { nodes: [] },
       relations: { nodes: [] },
+      inverseRelations: { nodes: [] },
       ...overrides,
     };
   }
@@ -205,12 +211,18 @@ describe("fetchProjectIssues", () => {
     expect(body.variables).toEqual({ projectId: "proj-1" });
     expect(body.query).toContain("description");
     expect(body.query).toContain("updatedAt");
+    expect(body.query).toContain("createdAt");
+    expect(body.query).toMatch(/project\s*\{\s*id\s+name\s*\}/);
+    expect(body.query).toMatch(/inverseRelations\s*\{/);
+    expect(body.query).toMatch(/relatedIssue\s*\{\s*id\s+identifier\s+title\s+state\s*\{\s*type\s*\}/);
     expect(body.query).toMatch(/state\s*\{\s*id\b/);
     expect(body.query).toMatch(/team\s*\{\s*id\s*\}/);
 
     expect(issues).toHaveLength(1);
     expect(issues[0].description).toBe("Issue body");
     expect(issues[0].updatedAt).toBe("2026-10-29T12:34:56.789Z");
+    expect(issues[0].createdAt).toBe("2026-10-01T09:00:00.000Z");
+    expect(issues[0].project).toEqual({ id: "project-1", name: "M3" });
     expect(issues[0].state.id).toBe("state-todo");
     expect(issues[0].team.id).toBe("team-1");
   });
@@ -228,6 +240,34 @@ describe("fetchProjectIssues", () => {
 
     expect(issues[0].description).toBe(null);
     expect(issues[0].updatedAt).toBe("2026-01-02T03:04:05.006Z");
+  });
+
+  it("returns incoming relations with the related issue details", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: issuesPage([issueNode({
+          inverseRelations: {
+            nodes: [{
+              id: "rel-1",
+              type: "blocks",
+              relatedIssue: { id: "blocker-1", identifier: "SII-2", title: "Blocker", state: { type: "started" } },
+            }],
+          },
+        })]),
+      }),
+    });
+
+    const issues = await fetchProjectIssues("proj-1");
+
+    expect(issues[0].inverseRelations.nodes).toEqual([
+      {
+        id: "rel-1",
+        type: "blocks",
+        relatedIssue: { id: "blocker-1", identifier: "SII-2", title: "Blocker", state: { type: "started" } },
+      },
+    ]);
   });
 
   it("pages through the project and drops issues that are not plannable", async () => {
