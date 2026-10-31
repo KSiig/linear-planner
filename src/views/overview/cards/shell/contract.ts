@@ -1,17 +1,13 @@
 import type { ReactNode } from "react";
+import type { IssueQuickLookData } from "../../../../issueQuickLookModel";
 
-export interface OverviewIssue {
-  id: string;
-  identifier: string;
-  title: string;
-  url: string;
-  dueDate: string | null;
-  priority: number;
-  priorityLabel: string;
-  updatedAt: string;
-  state: { name: string; type: string };
-  project: { id: string; name: string } | null;
-}
+/**
+ * The canonical issue facts shown by Overview.
+ *
+ * Overview uses the same issue model as every other issue surface. It does
+ * not define a second issue shape or rename any canonical fields.
+ */
+export type OverviewIssue = IssueQuickLookData;
 
 export interface CardContext {
   today: string;
