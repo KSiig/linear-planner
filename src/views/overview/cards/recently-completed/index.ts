@@ -1,5 +1,5 @@
 import "./index.css";
-import { addCalendarDays, shortDay } from "../../calendar";
+import { addCalendarDays, localToday, shortDay } from "../../calendar";
 import { defineCard, type CardRow, type OverviewIssue } from "../shell/contract";
 
 /**
@@ -12,14 +12,21 @@ import { defineCard, type CardRow, type OverviewIssue } from "../shell/contract"
 const RECENCY_WINDOW_DAYS = 14;
 
 /**
- * The calendar day of an ISO timestamp.
+ * The local calendar day of an ISO timestamp.
  *
- * An issue without a completion time has no completion day, so it is not in
- * the window.
+ * The card compares the day with `ctx.today`, which is a local date, so the
+ * day has to be a local day too. Taking the first ten characters of the
+ * timestamp would take the UTC day instead, and the two disagree for an hour
+ * a day around local midnight.
+ *
+ * An issue without a valid completion time has no completion day, so it is
+ * not in the window.
  */
 function calendarDay(value: string | null | undefined): string | null {
   if (!value) return null;
-  return value.slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return localToday(date);
 }
 
 /** Most recently completed first, then identifier. */

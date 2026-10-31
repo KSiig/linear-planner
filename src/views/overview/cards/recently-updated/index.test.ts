@@ -1,9 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { OverviewIssue } from "../shell/contract";
 import { overviewCardOrder, overviewCards } from "../../registry";
 import { recentlyUpdatedCard } from "./index";
 
 const today = "2026-10-22";
+
+/**
+ * The time zone the boundary test runs in.
+ *
+ * The card compares an issue's update day with `ctx.today`, and `ctx.today` is
+ * a local date. The test needs a local day that differs from the UTC day, so
+ * it pins the zone instead of relying on the machine's. Tokyo is nine hours
+ * ahead of UTC and keeps that offset all year, so the test does not depend on
+ * a daylight-saving rule.
+ */
+const TEST_TIME_ZONE = "Asia/Tokyo";
+
+/** The local day of the boundary test, in the pinned zone. */
+const BOUNDARY_TODAY = "2026-11-01";
+
+const originalTimeZone = process.env.TZ;
 
 function issue(
   overrides: Partial<OverviewIssue> & Pick<OverviewIssue, "id" | "identifier">,
@@ -32,6 +48,15 @@ function issue(
 }
 
 describe("recently updated card", () => {
+  beforeAll(() => {
+    process.env.TZ = TEST_TIME_ZONE;
+  });
+
+  afterAll(() => {
+    if (originalTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimeZone;
+  });
+
   it("includes open issues updated in the last 14 calendar days, today included", async () => {
     const model = await recentlyUpdatedCard.load({
       today,
@@ -115,6 +140,37 @@ describe("recently updated card", () => {
     const model = await recentlyUpdatedCard.load({
       today,
       issues: [issue({ id: "old", identifier: "SII-20", updatedAt: "2026-09-01T08:00:00.000Z" })],
+    });
+
+    expect(model).toBeNull();
+  });
+
+  it("uses the local calendar day at the UTC midnight boundary", async () => {
+    // In the pinned zone these three updates fall on three different local
+    // days. The UTC days of the first two are one day earlier than the local
+    // days, so taking the UTC day puts the first one outside the window.
+    const model = await recentlyUpdatedCard.load({
+      today: BOUNDARY_TODAY,
+      issues: [
+        issue({ id: "first-day", identifier: "SII-30", updatedAt: "2026-10-18T23:30:00.000Z" }),
+        issue({ id: "last-day", identifier: "SII-31", updatedAt: "2026-10-31T23:30:00.000Z" }),
+        issue({ id: "before", identifier: "SII-32", updatedAt: "2026-10-17T12:00:00.000Z" }),
+      ],
+    });
+
+    // The window runs from 19 Oct to 1 Nov, both days included.
+    expect(model?.sections[0].rows.map((row) => row.identifier)).toEqual(["SII-31", "SII-30"]);
+    expect(model?.sections[0].rows.find((row) => row.identifier === "SII-30")?.trailing).toBe("19 Oct");
+    expect(model?.sections[0].rows.find((row) => row.identifier === "SII-31")?.trailing).toBe("1 Nov");
+  });
+
+  it("excludes an issue whose update time is missing or invalid", async () => {
+    const model = await recentlyUpdatedCard.load({
+      today: BOUNDARY_TODAY,
+      issues: [
+        issue({ id: "missing", identifier: "SII-40", updatedAt: "" }),
+        issue({ id: "invalid", identifier: "SII-41", updatedAt: "2026-10-25T99:99:99.000Z" }),
+      ],
     });
 
     expect(model).toBeNull();
