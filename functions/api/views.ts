@@ -1,4 +1,4 @@
-import { authorize } from "../viewsAuth";
+import { authorize, type ViewsEnv } from "../viewsAuth";
 import {
   json,
   rejectMode,
@@ -11,7 +11,7 @@ import {
 
 interface PagesContext {
   request: Request;
-  env: { VIEWS_DB: ViewsDb };
+  env: ViewsEnv & { VIEWS_DB: ViewsDb };
 }
 
 export async function onRequest(context: PagesContext): Promise<Response> {
@@ -21,7 +21,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 }
 
 export async function onRequestGet(context: PagesContext): Promise<Response> {
-  const denied = await authorize(context.request);
+  const denied = await authorize(context.request, context.env);
   if (denied) return denied;
   const listed = await context.env.VIEWS_DB.prepare(
     "SELECT id, name, query_json, mode, updated_at FROM views ORDER BY name",
@@ -34,7 +34,7 @@ export async function onRequestGet(context: PagesContext): Promise<Response> {
 }
 
 export async function onRequestPost(context: PagesContext): Promise<Response> {
-  const denied = await authorize(context.request);
+  const denied = await authorize(context.request, context.env);
   if (denied) return denied;
   let body: unknown;
   try {

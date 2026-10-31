@@ -1,5 +1,5 @@
-import { isPlannerQuery, type PlannerQuery } from "../src/plannerQuery";
-import { isSavedViewMode, readSavedViewMode, type SavedView, type SavedViewMode } from "../src/savedViews";
+import { isPlannerQuery, normalizePlannerQuery, type PlannerQuery } from "../src/plannerQuery";
+import { readSavedViewMode, type SavedView, type SavedViewMode } from "../src/savedViews";
 
 export interface ViewRow {
   id: string;
@@ -34,9 +34,12 @@ export function rowToView(row: ViewRow): SavedView | null {
   } catch {
     return null;
   }
+  // A stored row from before the mode rename keeps the old mode name and
+  // reads as the current one. The query is normalized, so a stored legacy
+  // state-type filter comes back with the state ids the app filters on.
   const mode = readSavedViewMode(row.mode);
   if (!isPlannerQuery(query) || !mode) return null;
-  return { id: row.id, name: row.name, query, mode };
+  return { id: row.id, name: row.name, query: normalizePlannerQuery(query), mode };
 }
 
 export function rejectName(name: unknown): Response | null {
@@ -46,10 +49,15 @@ export function rejectName(name: unknown): Response | null {
 
 export function rejectQuery(query: unknown): Response | PlannerQuery {
   if (!isPlannerQuery(query)) return json({ error: "Query is not a PlannerQuery" }, 400);
-  return query;
+  // A stored row keeps the legacy state types it was written with, and gets
+  // the state ids the app filters on.
+  return normalizePlannerQuery(query);
 }
 
 export function rejectMode(mode: unknown): Response | SavedViewMode {
-  if (!isSavedViewMode(mode)) return json({ error: "Mode is not a saved view mode" }, 400);
-  return mode;
+  // The server accepts the legacy mode names during the migration and stores
+  // the current one, so an old client keeps working and the row is renamed.
+  const current = readSavedViewMode(mode);
+  if (!current) return json({ error: "Mode is not a saved view mode" }, 400);
+  return current;
 }

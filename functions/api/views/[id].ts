@@ -1,4 +1,4 @@
-import { authorize } from "../../viewsAuth";
+import { authorize, type ViewsEnv } from "../../viewsAuth";
 import {
   json,
   rejectMode,
@@ -11,7 +11,7 @@ import {
 
 interface PagesContext {
   request: Request;
-  env: { VIEWS_DB: ViewsDb };
+  env: ViewsEnv & { VIEWS_DB: ViewsDb };
   params: { id: string };
 }
 
@@ -28,7 +28,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 }
 
 export async function onRequestPatch(context: PagesContext): Promise<Response> {
-  const denied = await authorize(context.request);
+  const denied = await authorize(context.request, context.env);
   if (denied) return denied;
   const existing = await readRow(context.env.VIEWS_DB, context.params.id);
   if (!existing) return json({ error: "Not found" }, 404);
@@ -69,7 +69,7 @@ export async function onRequestPatch(context: PagesContext): Promise<Response> {
 }
 
 export async function onRequestDelete(context: PagesContext): Promise<Response> {
-  const denied = await authorize(context.request);
+  const denied = await authorize(context.request, context.env);
   if (denied) return denied;
   const existing = await readRow(context.env.VIEWS_DB, context.params.id);
   if (!existing) return json({ error: "Not found" }, 404);

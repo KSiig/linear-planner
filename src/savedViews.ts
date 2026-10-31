@@ -1,4 +1,4 @@
-import { emptyPlannerQuery, isPlannerQuery, type PlannerQuery } from "./plannerQuery";
+import { emptyPlannerQuery, isPlannerQuery, normalizePlannerQuery, type PlannerQuery } from "./plannerQuery";
 
 export type SavedViewMode = "dates" | "tree" | "overview";
 
@@ -37,14 +37,17 @@ export function loadPlannerQuery(): PlannerQuery {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!isPlannerQuery(parsed)) return emptyPlannerQuery();
-    return parsed;
+    // A stored query from before the Status filter moved to concrete states
+    // carries the legacy state types and no state ids. It loads with both, so
+    // the old filter still works and the next save writes the state ids.
+    return normalizePlannerQuery(parsed);
   } catch {
     return emptyPlannerQuery();
   }
 }
 
 export function savePlannerQuery(query: PlannerQuery): void {
-  localStorage.setItem(QUERY_KEY, JSON.stringify(query));
+  localStorage.setItem(QUERY_KEY, JSON.stringify(normalizePlannerQuery(query)));
 }
 
 export function loadActiveViewId(): string | null {
@@ -155,7 +158,10 @@ export async function createSavedView(
   const response = await fetchImpl("/api/views", {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify(input),
+    // A new saved view writes the workflow state ids. A query that still
+    // carries the legacy state types keeps them, so an old filter keeps
+    // selecting the same issues.
+    body: JSON.stringify({ ...input, query: normalizePlannerQuery(input.query) }),
   });
   return readJson<SavedView>(response);
 }
@@ -178,7 +184,7 @@ export async function updateSavedView(
   const response = await fetchImpl(`/api/views/${id}`, {
     method: "PATCH",
     headers: authHeaders(token),
-    body: JSON.stringify(patch),
+    body: JSON.stringify(patch.query ? { ...patch, query: normalizePlannerQuery(patch.query) } : patch),
   });
   return readJson<SavedView>(response);
 }
