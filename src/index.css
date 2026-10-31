@@ -63,3 +63,13 @@ body {
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
 }
+
+/*
+ * Issue rows suppress the native touch callout, so a long press opens Linear
+ * instead of the menu of the browser. The callout of the rest of the app
+ * stays. The class belongs to src/issueInteraction.ts.
+ */
+.issue-touch-target {
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}

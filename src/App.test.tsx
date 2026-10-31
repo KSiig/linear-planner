@@ -33,7 +33,13 @@ vi.mock("./linear", () => ({
   deleteIssueRelation: vi.fn(),
   issueUpdate: vi.fn(async () => undefined),
   addBlocksRelation: vi.fn(),
-  removeRelation: vi.fn(),
+  removeRelation: vi.fn((issues: LinearIssue[], relationId: string) => issues.map((issue) => ({
+    ...issue,
+    relations: {
+      ...issue.relations,
+      nodes: issue.relations.nodes.filter((relation) => relation.id !== relationId),
+    },
+  }))),
 }));
 
 vi.mock("./applyPlannerQuery", () => ({
@@ -131,33 +137,45 @@ describe("display tabs", () => {
   it("keeps dependency editing available and reconnects after a scope failure", async () => {
     const blockedIssue: LinearIssue = {
       ...issueFixture,
-      id: "i2",
-      identifier: "ABC-2",
-      title: "Blocked issue",
-      relations: { nodes: [] },
+      id: "i1",
+      identifier: "ABC-1",
+      title: "Ship the dates view",
+      inverseRelations: {
+        nodes: [{
+          id: "rel-1",
+          type: "blocks",
+          relatedIssue: { id: "i2", identifier: "ABC-2", title: "Blocked issue", state: { type: "unstarted" } },
+        }],
+      },
     };
     const blockerIssue: LinearIssue = {
       ...issueFixture,
+      id: "i2",
+      identifier: "ABC-2",
+      title: "Blocked issue",
       relations: {
-        nodes: [{ id: "rel-1", type: "blocks", relatedIssue: { id: "i2", identifier: "ABC-2" } }],
+        nodes: [{
+          id: "rel-1",
+          type: "blocks",
+          relatedIssue: { id: "i1", identifier: "ABC-1", title: "Ship the dates view", state: { type: "unstarted" } },
+        }],
       },
     };
-    vi.mocked(fetchScopedIssues).mockResolvedValue([blockerIssue, blockedIssue]);
+    vi.mocked(fetchScopedIssues).mockResolvedValue([blockedIssue, blockerIssue]);
     vi.mocked(deleteIssueRelation).mockRejectedValue(new Error("Invalid scope: write required"));
-    const alertSpy = vi.fn();
-    Object.defineProperty(window, "alert", { configurable: true, value: alertSpy });
 
     window.history.pushState(null, "", "/p1/");
     render(<App />);
     await screen.findByRole("button", { name: "Overview" });
     fireEvent.click(screen.getByRole("button", { name: "Tree" }));
 
-    const blockedTitle = await screen.findByText("Blocked issue");
-    const blockedCard = blockedTitle.closest("[data-card]") as HTMLElement;
-    expect(blockedCard.getAttribute("draggable")).toBe("true");
+    const blockerTitle = await screen.findByText("Blocked issue");
+    const blockerCard = blockerTitle.closest("[data-card]") as HTMLElement;
+    expect(blockerCard.getAttribute("draggable")).toBe("true");
 
-    fireEvent.contextMenu(blockedCard);
-    fireEvent.click(await screen.findByRole("button", { name: /Remove blocked by issue: ABC-1/ }));
+    // The blocker is removed from the quick-look of the blocked issue.
+    fireEvent.click(screen.getByRole("link", { name: /ABC-1 Ship the dates view/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove blocker ABC-2" }));
 
     const reconnect = await screen.findByRole("button", { name: "Reconnect to update Linear" });
     fireEvent.click(reconnect);
@@ -166,7 +184,6 @@ describe("display tabs", () => {
     expect(reauthorizeWithWriteScope).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Invalid scope: write required" }),
     );
-    expect(alertSpy).toHaveBeenCalled();
   });
 });
 
@@ -212,6 +229,32 @@ describe("the shared issue quick-look", () => {
 
     expect(preventedBySurface).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("removes a blocker from the quick-look", async () => {
+    const blockedIssue: LinearIssue = {
+      ...issueFixture,
+      inverseRelations: {
+        nodes: [{
+          id: "rel-1",
+          type: "blocks",
+          relatedIssue: { id: "i2", identifier: "ABC-2", title: "Blocked issue", state: { type: "unstarted" } },
+        }],
+      },
+    };
+    vi.mocked(fetchScopedIssues).mockResolvedValue([blockedIssue]);
+
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^Due 2026-11-02/ }));
+    await screen.findByRole("dialog", { name: "Ship the dates view" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove blocker ABC-2" }));
+
+    await waitFor(() => expect(deleteIssueRelation).toHaveBeenCalledWith("rel-1"));
+    // The blocker leaves the quick-look without a reload of the page.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove blocker ABC-2" })).toBeNull());
   });
 
   it("changes the status of the issue from the quick-look", async () => {
