@@ -86,6 +86,68 @@ function isDueWindowConfig(value: unknown): value is DueWindowConfig {
   return dueWindowConfigError(config) === null;
 }
 
+/** The whole number a settings field holds, or null when it holds none. */
+function parseWholeDays(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "" || !/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+/** Which settings field a message is about. */
+export type DueWindowField = "next" | "soon";
+
+/** Why a pair of settings fields cannot be used. */
+export interface DueWindowDraftError {
+  /** The field the message is about. */
+  field: DueWindowField;
+  /** The message the settings panel shows. */
+  reason: string;
+  /**
+   * Whether the field goes back to the value that is in effect.
+   *
+   * A value that can never be used is put back, so the field never keeps a
+   * rejected value. A value that only conflicts with the other field stays,
+   * so it can be finished and the other field can be raised to meet it.
+   */
+  revert: boolean;
+}
+
+/** The boundaries two settings fields hold, or why they cannot be used. */
+export type DueWindowDraftResult =
+  | { ok: true; config: DueWindowConfig }
+  | { ok: false; error: DueWindowDraftError };
+
+/**
+ * The boundaries two settings fields hold, or the reason they cannot be used.
+ *
+ * A field that holds no whole number of days is rejected, and so is a pair
+ * the windows cannot use.
+ */
+export function parseDueWindowDraft(next: string, soon: string): DueWindowDraftResult {
+  const nextEndDays = parseWholeDays(next);
+  if (nextEndDays === null) {
+    return { ok: false, error: { field: "next", reason: "Next must be a whole number of days.", revert: false } };
+  }
+  const soonEndDays = parseWholeDays(soon);
+  if (soonEndDays === null) {
+    return { ok: false, error: { field: "soon", reason: "Soon must be a whole number of days.", revert: false } };
+  }
+  const config: DueWindowConfig = { nextEndDays, soonEndDays };
+  const reason = dueWindowConfigError(config);
+  if (reason !== null) {
+    // A Next boundary outside its own range can never be used. A Soon
+    // boundary below the Next one only conflicts with the other field, so it
+    // stays in the field until the other field meets it.
+    const nextOutOfRange =
+      nextEndDays < NEXT_END_DAYS_MIN || nextEndDays > NEXT_END_DAYS_MAX;
+    return {
+      ok: false,
+      error: { field: nextOutOfRange ? "next" : "soon", reason, revert: nextOutOfRange },
+    };
+  }
+  return { ok: true, config };
+}
+
 /** The boundaries a stored raw value holds, or the standard ones. */
 function parseStoredConfig(raw: string | null): DueWindowConfig {
   if (raw === null) return DEFAULT_DUE_WINDOW_CONFIG;
