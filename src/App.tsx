@@ -721,6 +721,9 @@ export default function App() {
       nextEndDays: String(config.nextEndDays),
       soonEndDays: String(config.soonEndDays),
     });
+    // Nothing is loaded yet, so there is nothing to filter again. The issues
+    // that arrive later are filtered with the new boundaries.
+    if (scopedIssuesRef.current.length === 0) return;
     const matched = filterMatchingIssues(scopedIssuesRef.current, plannerQuery, localToday(new Date()));
     setProjectIssues(matched);
     setOverviewIssues(matched.map(toOverviewIssue));

@@ -7,6 +7,7 @@ import { deleteIssueRelation, fetchProjects, fetchProjectTeamIds, fetchTeamWorkf
 import type { LinearIssue } from "./linear";
 import { fetchScopedById, fetchScopedIssues } from "./applyPlannerQuery";
 import App from "./App";
+import { addCalendarDays, localToday } from "./dueWindows";
 
 vi.mock("./auth", async () => {
   const actual = await vi.importActual<typeof import("./auth")>("./auth");
@@ -459,5 +460,70 @@ describe("the status filter", () => {
 
     expect(screen.getByRole("button", { name: "Todo · SII" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Todo · WEB" })).toBeTruthy();
+  });
+});
+
+describe("the due-window settings", () => {
+  /** The day the fixture issue is due, so the test does not depend on today. */
+  const dueDate = addCalendarDays(localToday(new Date()), 20);
+
+  async function openSettings() {
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    return screen.findByLabelText("Next window (days)");
+  }
+
+  it("shows both boundaries with their current values", async () => {
+    const next = await openSettings();
+    expect(next.getAttribute("value")).toBe("14");
+    expect(screen.getByLabelText("Soon window (days)").getAttribute("value")).toBe("45");
+  });
+
+  it("stores a valid pair under one versioned key and applies it without a reload", async () => {
+    const next = await openSettings();
+    fireEvent.change(next, { target: { value: "30" } });
+
+    expect(localStorage.getItem("linear-planner:due-windows:v1")).toBe('{"nextEndDays":30,"soonEndDays":45}');
+    expect(screen.getByLabelText("Next window (days)").getAttribute("value")).toBe("30");
+  });
+
+  it("refuses a value outside its range and keeps the previous boundaries", async () => {
+    const next = await openSettings();
+    fireEvent.change(next, { target: { value: "200" } });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(localStorage.getItem("linear-planner:due-windows:v1")).toBeNull();
+    expect(screen.getByLabelText("Next window (days)").getAttribute("value")).toBe("14");
+  });
+
+  it("refuses a Soon boundary below the Next boundary and keeps the previous boundaries", async () => {
+    const next = await openSettings();
+    fireEvent.change(next, { target: { value: "60" } });
+    fireEvent.change(screen.getByLabelText("Soon window (days)"), { target: { value: "30" } });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(localStorage.getItem("linear-planner:due-windows:v1")).toBeNull();
+  });
+
+  it("puts the due windows of the Overview in line with the new boundaries", async () => {
+    vi.mocked(fetchScopedIssues).mockResolvedValue([
+      { ...issueFixture, dueDate, state: { ...issueFixture.state, type: "unstarted" } },
+    ]);
+    window.history.pushState(null, "", "/p1/");
+    render(<App />);
+    await screen.findByRole("button", { name: "Overview" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    // The issue is due after the standard Next window, so the Next card has
+    // no rows and shows nothing.
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Next" })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.change(await screen.findByLabelText("Next window (days)"), { target: { value: "30" } });
+
+    // The card loads again with the new boundary, without the page reloading.
+    expect(await screen.findByRole("heading", { name: "Next" })).toBeTruthy();
   });
 });
