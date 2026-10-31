@@ -1,5 +1,6 @@
 import "./index.css";
-import { addCalendarDays, shortDay } from "../../calendar";
+import { shortDay } from "../../calendar";
+import { dueWindowRange, matchesDueWindow } from "../../../../dueWindows";
 import { defineCard, type CardContext, type CardModel, type OverviewIssue } from "../shell/contract";
 
 function isOpen(issue: OverviewIssue): boolean {
@@ -9,13 +10,9 @@ function isOpen(issue: OverviewIssue): boolean {
 export const soonCard = defineCard({
   id: "soon",
   async load(ctx: CardContext): Promise<CardModel | null> {
-    const start = addCalendarDays(ctx.today, 15);
-    const end = addCalendarDays(ctx.today, 45);
+    const range = dueWindowRange("soon", ctx.today);
     const rows = ctx.issues
-      .filter((issue) => {
-        if (!isOpen(issue) || issue.dueDate === null) return false;
-        return issue.dueDate >= start && issue.dueDate <= end;
-      })
+      .filter((issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "soon", ctx.today))
       .sort((a, b) => {
         const byDate = (a.dueDate ?? "").localeCompare(b.dueDate ?? "");
         if (byDate !== 0) return byDate;
@@ -34,7 +31,7 @@ export const soonCard = defineCard({
 
     return {
       title: "Soon",
-      subtitle: `through ${shortDay(end)}`,
+      subtitle: range.end === null ? undefined : `through ${shortDay(range.end)}`,
       sections: [{ rows }],
     };
   },

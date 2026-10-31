@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { emptyPlannerQuery, matchesQuery, scopeProjectIds, type QueryIssue } from "./plannerQuery";
+import {
+  emptyPlannerQuery,
+  isPlannerQuery,
+  matchesQuery,
+  normalizePlannerQuery,
+  scopeProjectIds,
+  type QueryIssue,
+} from "./plannerQuery";
 
 const TODAY = "2026-10-23";
 const HUSKOB = "huskob";
@@ -8,7 +15,7 @@ const AD_HOC = "ad-hoc";
 function issue(overrides: Partial<QueryIssue> = {}): QueryIssue {
   return {
     project: { id: AD_HOC },
-    state: { type: "started" },
+    state: { id: "state-started", type: "started" },
     assignee: { id: "kasper" },
     priority: 2,
     labels: { nodes: [{ name: "Bug" }] },
@@ -66,5 +73,73 @@ describe("matchesQuery", () => {
     const query = { ...emptyPlannerQuery(), projectIds: [AD_HOC], assigneeIds: ["unassigned"] };
     expect(matchesQuery(issue({ assignee: null }), query, TODAY)).toBe(true);
     expect(matchesQuery(issue(), query, TODAY)).toBe(false);
+  });
+});
+
+describe("the status filter", () => {
+  it("filters by the workflow state id", () => {
+    const query = { ...emptyPlannerQuery(), projectIds: [AD_HOC], stateIds: ["state-started"] };
+    expect(matchesQuery(issue(), query, TODAY)).toBe(true);
+    expect(matchesQuery(issue({ state: { id: "state-done", type: "started" } }), query, TODAY)).toBe(false);
+  });
+
+  it("keeps the legacy state type filter working", () => {
+    const query = { ...emptyPlannerQuery(), projectIds: [AD_HOC], stateTypes: ["started"] };
+    expect(matchesQuery(issue(), query, TODAY)).toBe(true);
+    expect(matchesQuery(issue({ state: { id: "state-done", type: "completed" } }), query, TODAY)).toBe(false);
+  });
+
+  it("reads a query that carries no state ids", () => {
+    const query = { ...emptyPlannerQuery(), projectIds: [AD_HOC] };
+    delete query.stateIds;
+    expect(matchesQuery(issue(), query, TODAY)).toBe(true);
+  });
+});
+
+describe("the due windows", () => {
+  const next = { ...emptyPlannerQuery(), projectIds: [AD_HOC], dueWindow: "next" as const };
+
+  it("counts today and day fourteen as next and day fifteen as soon", () => {
+    expect(matchesQuery(issue({ dueDate: "2026-10-23" }), next, TODAY)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-11-06" }), next, TODAY)).toBe(true);
+    expect(matchesQuery(issue({ dueDate: "2026-11-07" }), next, TODAY)).toBe(false);
+  });
+});
+
+describe("isPlannerQuery", () => {
+  it("reads a query that carries no state ids", () => {
+    const legacy = {
+      projectIds: [AD_HOC],
+      stateTypes: ["started"],
+      assigneeIds: [],
+      priorities: [],
+      labelNames: [],
+      milestoneIds: [],
+      dueWindow: null,
+    };
+    expect(isPlannerQuery(legacy)).toBe(true);
+  });
+
+  it("rejects a query whose state ids are not strings", () => {
+    expect(isPlannerQuery({ ...emptyPlannerQuery(), stateIds: [1] })).toBe(false);
+  });
+});
+
+describe("normalizePlannerQuery", () => {
+  it("fills in the state ids of a legacy query and keeps the legacy filter", () => {
+    const legacy = {
+      projectIds: [AD_HOC],
+      stateTypes: ["started"],
+      assigneeIds: [],
+      priorities: [],
+      labelNames: [],
+      milestoneIds: [],
+      dueWindow: null,
+    };
+    expect(normalizePlannerQuery(legacy)).toEqual({ ...emptyPlannerQuery(), projectIds: [AD_HOC], stateTypes: ["started"] });
+  });
+
+  it("keeps the keys of an empty query in one order", () => {
+    expect(Object.keys(normalizePlannerQuery(emptyPlannerQuery()))).toEqual(Object.keys(emptyPlannerQuery()));
   });
 });

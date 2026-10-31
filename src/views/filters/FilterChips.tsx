@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { PlannerQuery } from "../../plannerQuery";
 import { emptyPlannerQuery } from "../../plannerQuery";
+import { dueWindowLabel } from "../../dueWindows";
 import type { SavedView, SavedViewMode } from "../../savedViews";
 import { createSavedView } from "../../savedViews";
 import { getAccessToken } from "../../auth";
-import type { FilterOption } from "./FilterMenu";
+import type { FilterOption, StatusOption } from "./FilterMenu";
 import { isEmptyQuery, savedViewErrorMessage, showSaveView } from "./plannerViewState";
 
 const chipStyle = {
@@ -22,6 +23,7 @@ export function FilterChips({
   mode,
   activeView,
   projects,
+  statuses,
   assignees,
   milestones,
   onChange,
@@ -31,6 +33,7 @@ export function FilterChips({
   mode: SavedViewMode;
   activeView: SavedView | null;
   projects: FilterOption[];
+  statuses: StatusOption[];
   assignees: FilterOption[];
   milestones: FilterOption[];
   onChange: (query: PlannerQuery) => void;
@@ -39,7 +42,7 @@ export function FilterChips({
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const chips = chipsFor(query, projects, assignees, milestones);
+  const chips = chipsFor(query, projects, statuses, assignees, milestones);
   const saveVisible = showSaveView(activeView, query, mode);
   if (chips.length === 0 && activeView == null && !saveVisible) return null;
 
@@ -118,14 +121,6 @@ function labelFor(id: string, options: FilterOption[]): string {
   return options.find((option) => option.id === id)?.label ?? id;
 }
 
-const DUE_LABELS: Record<string, string> = {
-  overdue: "Overdue",
-  next: "Next",
-  soon: "Soon",
-  later: "Later",
-  none: "No date",
-};
-
 const PRIORITY_LABELS: Record<number, string> = {
   1: "Urgent",
   2: "High",
@@ -134,14 +129,34 @@ const PRIORITY_LABELS: Record<number, string> = {
   0: "No priority",
 };
 
-function chipsFor(query: PlannerQuery, projects: FilterOption[], assignees: FilterOption[], milestones: FilterOption[]) {
+function chipsFor(
+  query: PlannerQuery,
+  projects: FilterOption[],
+  statuses: StatusOption[],
+  assignees: FilterOption[],
+  milestones: FilterOption[],
+) {
   const chips: Array<{ key: string; label: string; next: PlannerQuery }> = [];
   for (const id of query.projectIds) {
     const label = `Project ${labelFor(id, projects)}`;
     chips.push({ key: `project:${id}`, label, next: { ...query, projectIds: query.projectIds.filter((item) => item !== id) } });
   }
-  for (const id of query.stateTypes) {
-    chips.push({ key: `status:${id}`, label: `Status ${id}`, next: { ...query, stateTypes: query.stateTypes.filter((item) => item !== id) } });
+  for (const id of query.stateIds ?? []) {
+    chips.push({
+      key: `status:${id}`,
+      label: `Status ${labelFor(id, statuses)}`,
+      next: { ...query, stateIds: (query.stateIds ?? []).filter((item) => item !== id) },
+    });
+  }
+  for (const type of query.stateTypes) {
+    // A legacy filter selects a state type. The chip names the concrete state
+    // the type stands for, so the chip does not show an internal type.
+    const name = statuses.find((status) => status.type === type)?.label ?? type;
+    chips.push({
+      key: `status-type:${type}`,
+      label: `Status ${name}`,
+      next: { ...query, stateTypes: query.stateTypes.filter((item) => item !== type) },
+    });
   }
   for (const id of query.assigneeIds) {
     const name = id === "unassigned" ? "Unassigned" : labelFor(id, assignees);
@@ -165,7 +180,7 @@ function chipsFor(query: PlannerQuery, projects: FilterOption[], assignees: Filt
     });
   }
   if (query.dueWindow != null) {
-    chips.push({ key: "due", label: `Due ${DUE_LABELS[query.dueWindow]}`, next: { ...query, dueWindow: null } });
+    chips.push({ key: "due", label: `Due ${dueWindowLabel(query.dueWindow)}`, next: { ...query, dueWindow: null } });
   }
   return chips;
 }

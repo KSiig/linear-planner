@@ -1,4 +1,5 @@
-import { addCalendarDays, shortDay, shortMonthYear } from "../../calendar";
+import { shortDay, shortMonthYear } from "../../calendar";
+import { matchesDueWindow } from "../../../../dueWindows";
 import { defineCard, type CardSection, type OverviewIssue } from "../shell/contract";
 import "./index.css";
 
@@ -14,9 +15,8 @@ export const laterCard = defineCard({
     scroll: "body",
   },
   load: async (ctx) => {
-    const day46 = addCalendarDays(ctx.today, 46);
     const included = ctx.issues.filter(
-      (issue) => isOpen(issue) && issue.dueDate !== null && issue.dueDate >= day46,
+      (issue) => isOpen(issue) && matchesDueWindow(issue.dueDate, "later", ctx.today),
     );
     if (included.length === 0) return null;
 

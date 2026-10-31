@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
-import { fetchProjects, fetchProjectMilestones, fetchProjectWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation, issueUpdate, issueUpdateFields, fetchTeamMembers, fetchIssue } from "./linear";
+import { fetchProjects, fetchProjectMilestones, fetchProjectTeamIds, fetchTeamWorkflowStates, createBlockingRelation, deleteIssueRelation, addBlocksRelation, removeRelation, issueUpdate, issueUpdateFields, fetchTeamMembers, fetchIssue } from "./linear";
 import type { LinearProject, LinearIssue, LinearMilestone, LinearWorkflowState, LinearTeamMember } from "./linear";
 import { startLogin, handleOAuthCallback, getCallbackPath, isAuthenticated, clearTokens, logout, isAutoRefreshEnabled, setAutoRefreshEnabled, isOAuthScopeError, reauthorizeWithWriteScope } from "./auth";
 import { DependencyTree } from "./DependencyTree";
@@ -14,6 +14,7 @@ import { localToday } from "./views/overview/calendar";
 import type { OverviewIssue } from "./views/overview/cards/shell/contract";
 import { fetchScopedById, fetchScopedIssues, filterMatchingIssues, projectIdsToLoad, toOverviewIssue } from "./applyPlannerQuery";
 import type { PlannerQuery } from "./plannerQuery";
+import { normalizePlannerQuery } from "./plannerQuery";
 import {
   loadActiveViewId,
   loadDisplaySettings,
@@ -26,7 +27,7 @@ import {
   type SavedView,
   type SavedViewMode as Mode,
 } from "./savedViews";
-import { FilterMenu } from "./views/filters/FilterMenu";
+import { FilterMenu, type StatusOption, type StatusState } from "./views/filters/FilterMenu";
 import { FilterChips } from "./views/filters/FilterChips";
 import { ViewMenu } from "./views/filters/ViewMenu";
 import { IssueQuickLook } from "./IssueQuickLook";
@@ -144,6 +145,48 @@ const NO_ISSUE: IssueQuickLookData = {
 /** The assignee choices before the team members are known. */
 const NO_TEAM_MEMBERS: readonly LinearTeamMember[] = [];
 
+/** A workflow state together with the team that owns it. */
+interface TeamWorkflowState extends LinearWorkflowState {
+  teamId: string;
+}
+
+/**
+ * The workflow states of every team of a project.
+ *
+ * A project can span teams, and every team names its states on its own. The
+ * team is kept, so the Status filter can tell two states with the same name
+ * apart.
+ */
+async function fetchProjectTeamStates(projectId: string): Promise<TeamWorkflowState[]> {
+  const states: TeamWorkflowState[] = [];
+  for (const teamId of await fetchProjectTeamIds(projectId)) {
+    for (const state of await fetchTeamWorkflowStates(teamId)) {
+      states.push({ ...state, teamId });
+    }
+  }
+  return states;
+}
+
+/**
+ * The Status filter options.
+ *
+ * The option id is the workflow state id, so the filter selects the concrete
+ * state and not its internal type. Two teams can name a state the same way;
+ * those options carry the team key, so the names stay apart.
+ */
+function buildStatusOptions(states: StatusState[]): StatusOption[] {
+  const nameCount = new Map<string, number>();
+  for (const state of states) nameCount.set(state.name, (nameCount.get(state.name) ?? 0) + 1);
+  return states.map((state) => ({
+    id: state.id,
+    type: state.type,
+    label:
+      (nameCount.get(state.name) ?? 0) > 1 && state.teamKey !== ""
+        ? `${state.name} · ${state.teamKey}`
+        : state.name,
+  }));
+}
+
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [projects, setProjects] = useState<LinearProject[]>([]);
@@ -161,11 +204,11 @@ export default function App() {
 
   const [projectIssues, setProjectIssues] = useState<LinearIssue[]>([]);
   const [overviewIssues, setOverviewIssues] = useState<OverviewIssue[]>([]);
-  const [plannerQuery, setPlannerQuery] = useState(loadPlannerQuery);
+  const [plannerQuery, setPlannerQuery] = useState(() => normalizePlannerQuery(loadPlannerQuery()));
   const [activeViewId, setActiveViewId] = useState<string | null>(() => loadActiveViewId());
   const [activeView, setActiveView] = useState<SavedView | null>(null);
   const [projectMilestones, setProjectMilestones] = useState<LinearMilestone[]>([]);
-  const [workflowStates, setWorkflowStates] = useState<LinearWorkflowState[]>([]);
+  const [teamStates, setTeamStates] = useState<TeamWorkflowState[]>([]);
   // The issue the shared quick-look shows. One issue, one quick-look, every surface.
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
@@ -181,6 +224,26 @@ export default function App() {
   // Empty projects have nothing to plan, so they are not offered in the picker. They stay in
   // `projects` though, so an existing /p/<id> URL for one still restores.
   const selectableProjects = useMemo(() => projects.filter((p) => p.hasIssues), [projects]);
+
+  // The workflow states of the loaded projects. A state can be reached through
+  // more than one project, so every state is kept once.
+  const uniqueTeamStates = useMemo(() => {
+    const seen = new Set<string>();
+    return teamStates.filter((state) => {
+      if (seen.has(state.id)) return false;
+      seen.add(state.id);
+      return true;
+    });
+  }, [teamStates]);
+
+  // The workflow states the project runs on.
+  const workflowStates = useMemo<LinearWorkflowState[]>(
+    () =>
+      uniqueTeamStates
+        .map((state) => ({ id: state.id, name: state.name, type: state.type, position: state.position, color: state.color }))
+        .sort((left, right) => left.position - right.position),
+    [uniqueTeamStates],
+  );
 
   // The started states of the workflow: the states a project can treat as terminal
   // on top of the completed ones, and the states the tree reads a card's progress from.
@@ -312,7 +375,7 @@ export default function App() {
         setDoneStateIds(ps.doneStateIds);
 
         if (match && urlProjectId) {
-          const stored = loadPlannerQuery();
+          const stored = normalizePlannerQuery(loadPlannerQuery());
           const next = { ...stored, projectIds: [urlProjectId] };
           savePlannerQuery(next);
           setPlannerQuery(next);
@@ -350,14 +413,14 @@ export default function App() {
 
   const loadProject = useCallback(async () => {
     const gen = ++loadGen.current;
-    const query = loadPlannerQuery();
+    const query = normalizePlannerQuery(loadPlannerQuery());
     const selectableIds = projectsRef.current.filter((project) => project.hasIssues).map((project) => project.id);
     const ids = projectIdsToLoad(query, selectableIds);
     if (ids.length === 0) {
       setProjectIssues([]);
       setOverviewIssues([]);
       setProjectMilestones([]);
-      setWorkflowStates([]);
+      setTeamStates([]);
       return;
     }
     setError(null);
@@ -368,12 +431,12 @@ export default function App() {
       const [stamped, milestones, states] = await Promise.all([
         fetchScopedIssues(ids, projectsRef.current),
         fetchScopedById(ids, fetchProjectMilestones),
-        fetchScopedById(ids, fetchProjectWorkflowStates),
+        fetchScopedById(ids, fetchProjectTeamStates),
       ]);
       if (gen !== loadGen.current) return;
       const matched = filterMatchingIssues(stamped, query, localToday(new Date()));
       setOverviewIssues(matched.map(toOverviewIssue));
-      setWorkflowStates(states);
+      setTeamStates(states);
       if (stamped.length === 0) {
         setProjectIssues([]);
         setOverviewIssues([]);
@@ -444,7 +507,7 @@ export default function App() {
     setConnected(false);
     setProjectIssues([]);
     setProjectMilestones([]);
-    setWorkflowStates([]);
+    setTeamStates([]);
     setProjects([]);
     navigateToProject(null);
   }, []);
@@ -542,8 +605,9 @@ export default function App() {
   }, []);
 
   const editQuery = useCallback((next: PlannerQuery) => {
-    setPlannerQuery(next);
-    savePlannerQuery(next);
+    const normalized = normalizePlannerQuery(next);
+    setPlannerQuery(normalized);
+    savePlannerQuery(normalized);
     rememberView(null);
   }, [rememberView]);
 
@@ -553,14 +617,36 @@ export default function App() {
   }, [rememberView]);
 
   const applySavedView = useCallback((view: SavedView) => {
-    setPlannerQuery(view.query);
-    savePlannerQuery(view.query);
+    const normalized = normalizePlannerQuery(view.query);
+    setPlannerQuery(normalized);
+    savePlannerQuery(normalized);
     setMode(readSavedViewMode(view.mode) ?? "dates");
     rememberView(view);
   }, [rememberView]);
 
   const filterProjects = useMemo(() => selectableProjects.map((project) => ({ id: project.id, label: project.name })), [selectableProjects]);
-  const filterStatuses = useMemo(() => [...new Set(workflowStates.map((state) => state.type))], [workflowStates]);
+  // The Status filter offers the concrete workflow states, not their internal
+  // types. Two teams can name a state the same way, so those options carry the
+  // team key and stay apart.
+  const teamKeys = useMemo(() => {
+    const keys = new Map<string, string>();
+    for (const project of projects) {
+      for (const team of project.teams.nodes) keys.set(team.id, team.key || team.name || team.id);
+    }
+    return keys;
+  }, [projects]);
+  const filterStatuses = useMemo<StatusOption[]>(
+    () =>
+      buildStatusOptions(
+        uniqueTeamStates.map((state) => ({
+          id: state.id,
+          name: state.name,
+          type: state.type,
+          teamKey: teamKeys.get(state.teamId) ?? "",
+        })),
+      ),
+    [uniqueTeamStates, teamKeys],
+  );
   const filterAssignees = useMemo(() => {
     const people = new Map<string, string>();
     for (const issue of projectIssues) {
@@ -744,6 +830,7 @@ export default function App() {
           mode={mode}
           activeView={activeView}
           projects={filterProjects}
+          statuses={filterStatuses}
           assignees={filterAssignees}
           milestones={filterMilestones}
           onChange={editQuery}

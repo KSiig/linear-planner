@@ -1,5 +1,6 @@
 import { defineCard } from "../shell/contract";
-import { addCalendarDays, shortDay } from "../../calendar";
+import { shortDay } from "../../calendar";
+import { dueWindowRange, matchesDueWindow } from "../../../../dueWindows";
 import "./index.css";
 
 const CLOSED = new Set(["completed", "canceled"]);
@@ -7,10 +8,9 @@ const CLOSED = new Set(["completed", "canceled"]);
 export const nextCard = defineCard({
   id: "next",
   async load(ctx) {
-    const end = addCalendarDays(ctx.today, 14);
+    const range = dueWindowRange("next", ctx.today);
     const rows = ctx.issues
-      .filter((issue) => !CLOSED.has(issue.state.type) && issue.dueDate !== null)
-      .filter((issue) => issue.dueDate! >= ctx.today && issue.dueDate! <= end)
+      .filter((issue) => !CLOSED.has(issue.state.type) && matchesDueWindow(issue.dueDate, "next", ctx.today))
       .sort((left, right) => {
         const byDate = left.dueDate!.localeCompare(right.dueDate!);
         if (byDate !== 0) return byDate;
@@ -29,7 +29,7 @@ export const nextCard = defineCard({
 
     return {
       title: "Next",
-      subtitle: `through ${shortDay(end)}`,
+      subtitle: range.end === null ? undefined : `through ${shortDay(range.end)}`,
       sections: [{ rows }],
     };
   },
