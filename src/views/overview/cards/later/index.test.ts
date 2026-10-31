@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { CardShell } from "../shell";
 import type { OverviewIssue } from "../shell/contract";
 import { overviewCardOrder, overviewCards } from "../../registry";
 import { laterCard } from "./index";
+import { loadDueWindowConfig, saveDueWindowConfig } from "../../../../dueWindows";
 
 const today = "2026-10-22";
 
@@ -22,6 +23,11 @@ function issue(overrides: Partial<OverviewIssue> & Pick<OverviewIssue, "id" | "i
 }
 
 describe("later card", () => {
+  afterEach(() => {
+    // Read the boundaries back, so the card uses the standard ones again.
+    loadDueWindowConfig();
+  });
+
   it("includes open issues due on day 46 or later and excludes day 45 and null dates", async () => {
     const model = await laterCard.load({
       today,
@@ -35,6 +41,19 @@ describe("later card", () => {
     });
 
     expect(model?.sections.flatMap((section) => section.rows.map((row) => row.identifier))).toEqual(["SII-1"]);
+  });
+
+  it("counts the day after the configured Soon boundary", async () => {
+    saveDueWindowConfig({ nextEndDays: 30, soonEndDays: 60 });
+    const model = await laterCard.load({
+      today,
+      issues: [
+        issue({ id: "a", identifier: "SII-60", dueDate: "2026-12-21" }),
+        issue({ id: "b", identifier: "SII-61", dueDate: "2026-12-22" }),
+      ],
+    });
+
+    expect(model?.sections.flatMap((section) => section.rows.map((row) => row.identifier))).toEqual(["SII-61"]);
   });
 
   it("groups 1 Mar issues into one section titled with the row count", async () => {
@@ -71,7 +90,6 @@ describe("later card", () => {
   it("returns null when there are no rows", async () => {
     expect(await laterCard.load({ today, issues: [] })).toBeNull();
   });
-
   it("shows one row and a more button while collapsed when the row count is greater than 1", async () => {
     const model = await laterCard.load({
       today,

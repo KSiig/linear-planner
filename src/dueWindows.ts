@@ -40,10 +40,10 @@ export const SOON_END_DAYS_MAX = 365;
 /**
  * The boundaries in effect in this browser.
  *
- * They are read from storage when the app starts, and they are replaced by
- * every change the user makes.
+ * They are read from storage the first time they are asked for, and they are
+ * replaced by every change the person makes.
  */
-let currentConfig: DueWindowConfig = DEFAULT_DUE_WINDOW_CONFIG;
+let currentConfig: DueWindowConfig | null = null;
 
 /** The Due filter options, in the order the filter lists them. */
 export const DUE_WINDOW_OPTIONS: ReadonlyArray<{ id: DueWindow; label: string }> = [
@@ -184,6 +184,7 @@ export function loadDueWindowConfig(): DueWindowConfig {
  * surface uses the same boundaries.
  */
 export function getDueWindowConfig(): DueWindowConfig {
+  if (currentConfig === null) return loadDueWindowConfig();
   return currentConfig;
 }
 
