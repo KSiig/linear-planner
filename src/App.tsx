@@ -725,9 +725,19 @@ export default function App() {
     // that arrive later are filtered with the new boundaries.
     if (scopedIssuesRef.current.length === 0) return;
     const matched = filterMatchingIssues(scopedIssuesRef.current, plannerQuery, localToday(new Date()));
-    setProjectIssues(matched);
-    setOverviewIssues(matched.map(toOverviewIssue));
-  }, [plannerQuery]);
+    // The loaded issues hold the local edits — a relation the user added or
+    // removed, a status the user changed. Filtering again must not throw them
+    // away, so the local version of an issue is preferred over the fetched
+    // one. The project stays the one the fetched issue carries, because the
+    // local issue does not know it.
+    const localIssues = new Map(projectIssues.map((issue) => [issue.id, issue]));
+    const current = matched.map((issue) => {
+      const local = localIssues.get(issue.id);
+      return local ? { ...local, project: issue.project } : issue;
+    });
+    setProjectIssues(current);
+    setOverviewIssues(current.map(toOverviewIssue));
+  }, [plannerQuery, projectIssues]);
 
   /**
    * Change one of the two boundary fields.
@@ -765,6 +775,9 @@ export default function App() {
       nextEndDays: String(dueWindowConfig.nextEndDays),
       soonEndDays: String(dueWindowConfig.soonEndDays),
     });
+    // The fields hold the values in effect again, so the message about the
+    // rejected value has nothing left to report.
+    setDueWindowError(null);
   }, [dueWindowConfig, dueWindowDraft]);
 
   const settingsFields = (
