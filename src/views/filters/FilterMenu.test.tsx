@@ -87,6 +87,31 @@ describe("filter rows", () => {
     const path = back.querySelector("svg path");
     expect(path?.getAttribute("d")).toBe("m15 18-6-6 6-6");
   });
+
+  it("offers the due windows by their names and keeps the name in the query", () => {
+    const onChange = vi.fn();
+    render(
+      <FilterMenu
+        query={emptyPlannerQuery()}
+        projects={[]}
+        statuses={[]}
+        assignees={[]}
+        labels={[]}
+        milestones={[]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Due" }));
+
+    for (const name of ["Overdue", "Next", "Soon", "Later", "No date"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    // The query keeps the window name, so a saved view applies the window the
+    // browser currently has.
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ dueWindow: "next" }));
+  });
 });
 
 describe("header controls at 390px", () => {

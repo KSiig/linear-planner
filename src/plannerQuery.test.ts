@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   emptyPlannerQuery,
   isPlannerQuery,
@@ -12,6 +12,12 @@ import { getDueWindowConfig, loadDueWindowConfig, saveDueWindowConfig } from "./
 const TODAY = "2026-10-23";
 const HUSKOB = "huskob";
 const AD_HOC = "ad-hoc";
+
+afterEach(() => {
+  // Read the boundaries back, so the boundaries in effect are the standard
+  // ones again.
+  loadDueWindowConfig();
+});
 
 function issue(overrides: Partial<QueryIssue> = {}): QueryIssue {
   return {
@@ -143,7 +149,6 @@ describe("the due windows with configured boundaries", () => {
     expect(getDueWindowConfig()).toEqual(config);
     expect(matchesQuery(issue({ dueDate: "2026-11-22" }), next, TODAY)).toBe(true);
     expect(matchesQuery(issue({ dueDate: "2026-11-23" }), next, TODAY)).toBe(false);
-    loadDueWindowConfig();
   });
 });
 
